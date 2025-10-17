@@ -1,12 +1,24 @@
-@file:OptIn(ExperimentalLayoutApi::class)
+@file:OptIn(ExperimentalLayoutApi::class, ExperimentalAnimationApi::class)
 
 package com.example.aichat.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,11 +47,15 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.animateItemPlacement
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shadow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,6 +75,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +88,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -198,20 +216,39 @@ fun ChatApp(viewModel: ChatViewModel) {
                         onRegenerate = viewModel::regenerateMessage
                     )
 
-                    if (uiState.isSidebarOpen) {
+                    val overlayAlpha by animateFloatAsState(
+                        targetValue = if (uiState.isSidebarOpen) 0.6f else 0f,
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                    )
+                    val overlayInteraction = remember { MutableInteractionSource() }
+                    if (overlayAlpha > 0.01f) {
                         Box(
                             Modifier
-                                .fillMaxSize()
-                                .padding(start = sidebarWidth)
-                                .background(Color.Black.copy(alpha = 0.6f))
-                                .clickable { viewModel.toggleSidebar() }
+                                .matchParentSize()
+                                .background(Color.Black.copy(alpha = overlayAlpha))
+                                .clickable(
+                                    interactionSource = overlayInteraction,
+                                    indication = null
+                                ) { viewModel.toggleSidebar() }
                         )
+                    }
 
+                    AnimatedVisibility(
+                        modifier = Modifier.align(Alignment.TopStart),
+                        visible = uiState.isSidebarOpen,
+                        enter = slideInHorizontally(
+                            initialOffsetX = { -it },
+                            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)),
+                        exit = slideOutHorizontally(
+                            targetOffsetX = { -it },
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing))
+                    ) {
                         Sidebar(
                             modifier = Modifier
                                 .width(sidebarWidth)
-                                .fillMaxHeight()
-                                .align(Alignment.TopStart),
+                                .fillMaxHeight(),
                             uiState = uiState,
                             showCloseButton = true,
                             onClose = { viewModel.toggleSidebar() },
@@ -447,16 +484,54 @@ private fun GlowButton(
         else -> Color.White
     }
     val padding = if (compact) PaddingValues(horizontal = 14.dp, vertical = 6.dp) else PaddingValues(horizontal = 18.dp, vertical = 10.dp)
-    val baseModifier = modifier
-        .alpha(if (enabled) 1f else 0.5f)
-        .clip(shape)
+    val highlightColor = when (tone) {
+        ButtonTone.Default -> AccentBlue
+        ButtonTone.Primary -> AccentBlue
+        ButtonTone.Danger -> DangerRed
+    }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed && enabled) 0.97f else 1f,
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+    )
+    val glowElevation by animateDpAsState(
+        targetValue = if (isPressed && enabled) 10.dp else 0.dp,
+        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+    )
+    val baseModifier = modifier.alpha(if (enabled) 1f else 0.5f)
+    val decoratedModifier = Modifier
+        .then(
+            if (glowElevation > 0.dp) {
+                Modifier.shadow(
+                    elevation = glowElevation,
+                    shape = shape,
+                    clip = false,
+                    ambientColor = highlightColor.copy(alpha = 0.35f),
+                    spotColor = highlightColor.copy(alpha = 0.35f)
+                )
+            } else {
+                Modifier
+            }
+        )
+        .then(baseModifier)
         .background(background, shape)
-    val clickableModifier = if (borderColor == Color.Transparent) baseModifier else baseModifier.border(1.dp, borderColor, shape)
-    Box(
-        clickableModifier
-            .clickable(enabled = enabled) { onClick() }
-            .padding(padding)
-    ) {
+        .then(
+            if (borderColor == Color.Transparent) Modifier else Modifier.border(1.dp, borderColor, shape)
+        )
+        .clip(shape)
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        .clickable(
+            enabled = enabled,
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = onClick
+        )
+        .padding(padding)
+    Box(decoratedModifier) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             leading?.invoke()
             Text(
@@ -700,6 +775,21 @@ private fun MessagesList(
     onRegenerate: (Long) -> Unit
 ) {
     val listState = rememberLazyListState()
+    val isNearBottom by remember {
+        derivedStateOf {
+            if (messages.isEmpty()) {
+                true
+            } else {
+                val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                lastVisible >= messages.lastIndex - 1
+            }
+        }
+    }
+    LaunchedEffect(messages.size, streamingMessageId, streamingContent, isNearBottom) {
+        if (messages.isNotEmpty() && isNearBottom) {
+            listState.animateScrollToItem(messages.lastIndex)
+        }
+    }
     LazyColumn(
         modifier = modifier
             .fillMaxWidth()
@@ -712,27 +802,44 @@ private fun MessagesList(
             val isStreaming = message.id == streamingMessageId
             val draft = if (message.id == editingMessageId) editingDraft else null
             val regen = if (message.role == MessageRole.ASSISTANT) { { onRegenerate(message.id) } } else null
-            MessageCard(
-                index = index,
-                message = message,
-                isStreaming = isStreaming,
-                streamingContent = if (isStreaming) streamingContent else null,
-                thinking = if (isStreaming) thinking else message.thinking,
-                editingDraft = draft,
-                actionsEnabled = actionsEnabled,
-                onStartEdit = { onStartEdit(message.id) },
-                onEditChange = onEditChange,
-                onSaveEdit = onSaveEdit,
-                onCancelEdit = onCancelEdit,
-                onDelete = { onDelete(message.id) },
-                onRegenerate = regen
-            )
+            val transitionState = remember(message.id) {
+                MutableTransitionState(false).apply { targetState = true }
+            }
+            AnimatedVisibility(
+                visibleState = transitionState,
+                enter = slideInVertically(
+                    initialOffsetY = { it / 3 },
+                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)),
+                exit = slideOutVertically(
+                    targetOffsetY = { -it / 4 },
+                    animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing))
+            ) {
+                MessageCard(
+                    modifier = Modifier.animateItemPlacement(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)),
+                    index = index,
+                    message = message,
+                    isStreaming = isStreaming,
+                    streamingContent = if (isStreaming) streamingContent else null,
+                    thinking = if (isStreaming) thinking else message.thinking,
+                    editingDraft = draft,
+                    actionsEnabled = actionsEnabled,
+                    onStartEdit = { onStartEdit(message.id) },
+                    onEditChange = onEditChange,
+                    onSaveEdit = onSaveEdit,
+                    onCancelEdit = onCancelEdit,
+                    onDelete = { onDelete(message.id) },
+                    onRegenerate = regen
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun MessageCard(
+    modifier: Modifier = Modifier,
     index: Int,
     message: ChatMessage,
     isStreaming: Boolean,
@@ -759,7 +866,7 @@ private fun MessageCard(
     val displayContent = if (isStreaming && streamingContent != null) streamingContent else staticFormatted
     val shape = RoundedCornerShape(18.dp)
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(shape)
             .background(background, shape)
@@ -1155,15 +1262,31 @@ private fun SettingsDialog(
                             .fillMaxHeight()
                             .background(Color(0x331F2937))
                     )
-                    Box(
+                    AnimatedContent(
+                        targetState = selectedTab,
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(16.dp))
                             .background(Color(0x22151921))
                             .border(1.dp, Color(0xFF1F2937), RoundedCornerShape(16.dp))
-                            .padding(20.dp)
-                    ) {
-                        when (selectedTab) {
+                            .padding(20.dp),
+                        transitionSpec = {
+                            (
+                                fadeIn(animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)) +
+                                    slideInVertically(
+                                        initialOffsetY = { it / 8 },
+                                        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                                    )
+                                ) togetherWith (
+                                fadeOut(animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing)) +
+                                    slideOutVertically(
+                                        targetOffsetY = { -it / 10 },
+                                        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing)
+                                    )
+                                )
+                        }
+                    ) { tab ->
+                        when (tab) {
                             SettingsTab.MODELS -> ModelPresetPane(draft.modelPresets, onUpdateModel)
                             SettingsTab.PROMPTS -> PromptPresetPane(
                                 draft = draft,
