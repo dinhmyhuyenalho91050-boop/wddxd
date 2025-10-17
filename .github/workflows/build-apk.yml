@@ -1,8 +1,10 @@
-name: Build APK (with wrapper)
+name: Build APK
 
 on:
   workflow_dispatch:
   push:
+    branches: [ main, master ]
+  pull_request:
     branches: [ main, master ]
 
 jobs:
@@ -23,15 +25,13 @@ jobs:
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
           yes | sdkmanager --licenses
 
-      # 你的仓库里没有 gradlew 的话，先在线生成 Gradle Wrapper
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.7
-      - name: Init wrapper files
-        run: gradle wrapper --gradle-version 8.7
+          cache-disabled: true
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
