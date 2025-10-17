@@ -171,18 +171,19 @@ class ChatService(
             is com.example.aichat.model.GeminiProxyConfig -> c
             else -> error("Invalid Gemini config")
         }
-        val base = if (isProxy && cfg is com.example.aichat.model.GeminiProxyConfig) {
-            cfg.proxyUrl.trimEnd('/')
-        } else {
-            (cfg as com.example.aichat.model.GeminiConfig).base.trimEnd('/')
+        val base = when (cfg) {
+            is com.example.aichat.model.GeminiConfig -> cfg.base.trimEnd('/')
+            is com.example.aichat.model.GeminiProxyConfig -> cfg.proxyUrl.trimEnd('/')
+            else -> error("Invalid Gemini config")
         }
         val model = cfg.model
         val action = if (cfg.stream) "streamGenerateContent" else "generateContent"
         val urlBuilder = StringBuilder("$base/v1beta/models/${model.encodeURLComponent()}:$action")
         val query = mutableListOf<String>()
         if (cfg.stream) query += "alt=sse"
-        if (!isProxy && cfg is com.example.aichat.model.GeminiConfig && cfg.key.isNotBlank()) {
-            query += "key=${cfg.key}".encodeQuery()
+        if (!isProxy) {
+            (cfg as? com.example.aichat.model.GeminiConfig)?.key?.takeIf { it.isNotBlank() }
+                ?.let { key -> query += "key=${key.encodeURLComponent()}" }
         }
         if (query.isNotEmpty()) {
             urlBuilder.append('?').append(query.joinToString("&"))
@@ -212,18 +213,28 @@ class ChatService(
             }
         }
 
+        val useThinking = when (cfg) {
+            is com.example.aichat.model.GeminiConfig -> cfg.useThinking
+            is com.example.aichat.model.GeminiProxyConfig -> cfg.useThinking
+            else -> false
+        }
+        val topK = when (cfg) {
+            is com.example.aichat.model.GeminiConfig -> cfg.topK
+            is com.example.aichat.model.GeminiProxyConfig -> cfg.topK
+            else -> null
+        }
+        val thinkingBudget = when (cfg) {
+            is com.example.aichat.model.GeminiConfig -> cfg.thinkingBudget
+            is com.example.aichat.model.GeminiProxyConfig -> cfg.thinkingBudget
+            else -> null
+        }
         val generationConfig = buildJsonObject {
             cfg.temperature?.let { put("temperature", it) }
             cfg.topP?.let { put("topP", it) }
-            (cfg as? com.example.aichat.model.GeminiConfig)?.topK?.let { put("topK", it) }
-            (cfg as? com.example.aichat.model.GeminiProxyConfig)?.topK?.let { put("topK", it) }
+            topK?.let { put("topK", it) }
             cfg.maxTokens?.let { put("maxOutputTokens", it) }
-            if (cfg.useThinking) {
-                val budget = when (cfg) {
-                    is com.example.aichat.model.GeminiConfig -> cfg.thinkingBudget
-                    is com.example.aichat.model.GeminiProxyConfig -> cfg.thinkingBudget
-                    else -> null
-                } ?: -1
+            if (useThinking) {
+                val budget = thinkingBudget ?: -1
                 putJsonObject("thinkingConfig") {
                     put("thinkingBudget", budget)
                     put("includeThoughts", true)
@@ -261,11 +272,12 @@ class ChatService(
         val requestBuilder = Request.Builder().url(urlBuilder.toString())
             .post(json.encodeToString(body).toRequestBody("application/json".toMediaType()))
 
-        if (isProxy && cfg is com.example.aichat.model.GeminiProxyConfig && cfg.proxyPass.isNotBlank()) {
-            requestBuilder.header("Authorization", "Bearer ${cfg.proxyPass}")
-        }
-        if (!isProxy && cfg is com.example.aichat.model.GeminiConfig && cfg.key.isNotBlank()) {
-            requestBuilder.header("X-Goog-Api-Key", cfg.key)
+        if (isProxy) {
+            (cfg as? com.example.aichat.model.GeminiProxyConfig)?.proxyPass?.takeIf { it.isNotBlank() }
+                ?.let { requestBuilder.header("Authorization", "Bearer $it") }
+        } else {
+            (cfg as? com.example.aichat.model.GeminiConfig)?.key?.takeIf { it.isNotBlank() }
+                ?.let { requestBuilder.header("X-Goog-Api-Key", it) }
         }
         if (cfg.stream) {
             requestBuilder.header("Accept", "text/event-stream")
@@ -287,7 +299,7 @@ class ChatService(
         response: Response,
         type: ModelType,
         regexRules: List<RegexRule>,
-        emitter: kotlinx.coroutines.channels.ProducerScope<StreamEvent>
+        emitter: ProducerScope<StreamEvent>
     ) {
         val source = response.body?.source() ?: return
         var content = ""
@@ -387,13 +399,8 @@ class ChatService(
     }
 
     private fun applyRegex(content: String, rules: List<RegexRule>): String {
-        var result = content
-        rules.forEach { rule ->
-            result = rule.apply(result)
-        }
-        return result
+        return rules.fold(content) { acc, rule -> rule.apply(acc) }
     }
 
     private fun String.encodeURLComponent(): String = java.net.URLEncoder.encode(this, Charsets.UTF_8.name())
-    private fun String.encodeQuery(): String = java.net.URLEncoder.encode(this, Charsets.UTF_8.name())
 }
