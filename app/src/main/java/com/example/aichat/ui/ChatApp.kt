@@ -41,8 +41,10 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,6 +55,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -67,6 +70,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -257,8 +261,11 @@ private fun SettingsNavButton(text: String, selected: Boolean, onClick: () -> Un
             .fillMaxWidth()
             .clip(shape)
             .background(
-                if (selected) Brush.linearGradient(listOf(AccentBlue, Color(0xFF3B82F6)))
-                else Color(0x22151921)
+                if (selected) {
+                    Brush.linearGradient(listOf(AccentBlue, Color(0xFF3B82F6)))
+                } else {
+                    SolidColor(Color(0x22151921))
+                }
             )
             .border(1.dp, if (selected) Color.Transparent else Color(0xFF1F2937), shape)
             .clickable(onClick = onClick)
@@ -761,7 +768,10 @@ private fun MessageCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0x3310151F), shape.copy(bottomStart = 0.dp, bottomEnd = 0.dp))
+                .background(
+                    Color(0x3310151F),
+                    shape.copy(bottomStart = CornerSize(0.dp), bottomEnd = CornerSize(0.dp))
+                )
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
@@ -815,7 +825,10 @@ private fun MessageCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0x22101921), shape.copy(topStart = 0.dp, topEnd = 0.dp))
+                .background(
+                    Color(0x22101921),
+                    shape.copy(topStart = CornerSize(0.dp), topEnd = CornerSize(0.dp))
+                )
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             if (editingDraft != null) {
@@ -1042,8 +1055,11 @@ private fun PromptSelectorChips(
                 modifier = Modifier
                     .clip(shape)
                     .background(
-                        if (isSelected) Brush.linearGradient(listOf(AccentBlue, Color(0xFF3B82F6)))
-                        else Color(0x33151921)
+                        if (isSelected) {
+                            Brush.linearGradient(listOf(AccentBlue, Color(0xFF3B82F6)))
+                        } else {
+                            SolidColor(Color(0x33151921))
+                        }
                     )
                     .border(
                         1.dp,
@@ -1506,8 +1522,11 @@ private fun PromptPresetPane(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(
-                                    if (isSelected) Brush.linearGradient(listOf(AccentBlue, Color(0xFF3B82F6)))
-                                    else Color(0x22151921)
+                                    if (isSelected) {
+                                        Brush.linearGradient(listOf(AccentBlue, Color(0xFF3B82F6)))
+                                    } else {
+                                        SolidColor(Color(0x22151921))
+                                    }
                                 )
                                 .border(1.dp, if (isSelected) Color.Transparent else Color(0xFF1F2937), RoundedCornerShape(12.dp))
                                 .clickable { onSelectPrompt(preset.id) }
