@@ -12,7 +12,7 @@ import com.example.aichat.model.MessageRole
 import com.example.aichat.model.ModelPreset
 import com.example.aichat.model.PromptPreset
 import com.example.aichat.model.SessionWithMessages
-import com.example.aichat.model.apply
+import com.example.aichat.model.apply as applyRegexRule
 import com.example.aichat.network.ChatService
 import com.example.aichat.network.ChatService.StreamEvent
 import com.example.aichat.util.FormattedContent
@@ -85,6 +85,14 @@ class ChatViewModel(
 
     private var streamingJob: Job? = null
 
+    private data class AggregateState(
+        val interaction: InteractionState,
+        val streaming: StreamingState?,
+        val error: String?,
+        val export: String?,
+        val draft: SettingsDraft?
+    )
+
     private val coreState = combine(
         sessionsState,
         modelPresetsState,
@@ -108,14 +116,27 @@ class ChatViewModel(
         )
     }
 
-    val uiState = combine(
+    private val aggregateState = combine(
         interactionState,
         streamingState,
         errorMessage,
         exportJson,
-        settingsDraft,
+        settingsDraft
+    ) { interaction, streaming, error, export, draft ->
+        AggregateState(
+            interaction = interaction,
+            streaming = streaming,
+            error = error,
+            export = export,
+            draft = draft
+        )
+    }
+
+    val uiState = combine(
+        aggregateState,
         editingState
-    ) { interaction, streaming, error, export, draft, editing ->
+    ) { aggregate, editing ->
+        val interaction = aggregate.interaction
         val core = interaction.core
         val sessions = core.sessions
         val currentId = selectedSessionId.value ?: sessions.firstOrNull()?.id
@@ -138,13 +159,13 @@ class ChatViewModel(
             promptPresets = core.prompts,
             activeModelPreset = activeModel,
             activePromptPreset = activePrompt,
-            isStreaming = streaming != null,
-            streamingMessageId = streaming?.messageId,
-            streamingThinking = streaming?.thinking.orEmpty(),
-            streamingContent = streaming?.formatted ?: FormattedContent.Empty,
-            errorMessage = error,
-            exportJson = export,
-            settingsDraft = if (interaction.isSettingsOpen) draft else null,
+            isStreaming = aggregate.streaming != null,
+            streamingMessageId = aggregate.streaming?.messageId,
+            streamingThinking = aggregate.streaming?.thinking.orEmpty(),
+            streamingContent = aggregate.streaming?.formatted ?: FormattedContent.Empty,
+            errorMessage = aggregate.error,
+            exportJson = aggregate.export,
+            settingsDraft = if (interaction.isSettingsOpen) aggregate.draft else null,
             editingMessageId = editing?.message?.id,
             editingDraft = editing?.draft ?: ""
         )
@@ -658,7 +679,7 @@ class ChatViewModel(
     )
 
     private fun applyRegexRules(content: String, prompt: PromptPreset): String {
-        return prompt.regexRules.fold(content) { acc, rule -> rule.apply(acc) }
+        return prompt.regexRules.fold(content) { acc, rule -> rule.applyRegexRule(acc) }
     }
 
     companion object {

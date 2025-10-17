@@ -5,7 +5,7 @@ import com.example.aichat.model.ModelPreset
 import com.example.aichat.model.ModelType
 import com.example.aichat.model.PromptPreset
 import com.example.aichat.model.RegexRule
-import com.example.aichat.model.apply
+import com.example.aichat.model.apply as applyRegexRule
 import com.example.aichat.model.SessionWithMessages
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.awaitClose
@@ -400,7 +400,7 @@ class ChatService(
     }
 
     private fun applyRegex(content: String, rules: List<RegexRule>): String {
-        return rules.fold(content) { acc, rule -> rule.apply(acc) }
+        return rules.fold(content) { acc, rule -> rule.applyRegexRule(acc) }
     }
 
     private fun String.encodeURLComponent(): String = java.net.URLEncoder.encode(this, Charsets.UTF_8.name())
