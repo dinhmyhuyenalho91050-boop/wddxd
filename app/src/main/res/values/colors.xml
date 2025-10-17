@@ -1,0 +1,9 @@
+<resources>
+    <color name="bg_dark">#0a0e14</color>
+    <color name="fg_light">#e6e8eb</color>
+    <color name="panel_dark">#151921</color>
+    <color name="accent_yellow">#fbbf24</color>
+    <color name="accent_blue">#60a5fa</color>
+    <color name="accent_green">#10b981</color>
+    <color name="danger_red">#ef4444</color>
+</resources>
