@@ -357,21 +357,24 @@ private fun ChatArea(
             .background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical))
     ) {
-        MessagesList(
-            messages = uiState.messages,
-            streamingMessageId = uiState.streamingMessageId,
-            streamingContent = uiState.streamingContent,
-            thinking = uiState.streamingThinking,
-            editingMessageId = uiState.editingMessageId,
-            editingDraft = uiState.editingDraft,
-            actionsEnabled = !uiState.isStreaming && uiState.editingMessageId == null,
-            onStartEdit = onStartEdit,
-            onEditChange = onEditChange,
-            onSaveEdit = onSaveEdit,
-            onCancelEdit = onCancelEdit,
-            onDelete = onDelete,
-            onRegenerate = onRegenerate
-        )
+        Box(Modifier.weight(1f)) {
+            MessagesList(
+                modifier = Modifier.fillMaxSize(),
+                messages = uiState.messages,
+                streamingMessageId = uiState.streamingMessageId,
+                streamingContent = uiState.streamingContent,
+                thinking = uiState.streamingThinking,
+                editingMessageId = uiState.editingMessageId,
+                editingDraft = uiState.editingDraft,
+                actionsEnabled = !uiState.isStreaming && uiState.editingMessageId == null,
+                onStartEdit = onStartEdit,
+                onEditChange = onEditChange,
+                onSaveEdit = onSaveEdit,
+                onCancelEdit = onCancelEdit,
+                onDelete = onDelete,
+                onRegenerate = onRegenerate
+            )
+        }
         Divider()
         Composer(
             uiState = uiState,
@@ -385,6 +388,7 @@ private fun ChatArea(
 
 @Composable
 private fun MessagesList(
+    modifier: Modifier = Modifier,
     messages: List<ChatMessage>,
     streamingMessageId: Long?,
     streamingContent: FormattedContent,
@@ -401,8 +405,7 @@ private fun MessagesList(
 ) {
     val listState = rememberLazyListState()
     LazyColumn(
-        modifier = Modifier
-            .weight(1f)
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp),
         state = listState,
