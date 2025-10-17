@@ -387,11 +387,7 @@ class ChatService(
     }
 
     private fun applyRegex(content: String, rules: List<RegexRule>): String {
-        var result = content
-        rules.forEach { rule ->
-            result = rule.apply(result)
-        }
-        return result
+        return rules.fold(content) { acc, rule -> rule.apply(acc) }
     }
 
     private fun String.encodeURLComponent(): String = java.net.URLEncoder.encode(this, Charsets.UTF_8.name())
