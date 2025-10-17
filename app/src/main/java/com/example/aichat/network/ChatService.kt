@@ -5,6 +5,7 @@ import com.example.aichat.model.ModelPreset
 import com.example.aichat.model.ModelType
 import com.example.aichat.model.PromptPreset
 import com.example.aichat.model.RegexRule
+import com.example.aichat.model.apply
 import com.example.aichat.model.SessionWithMessages
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.awaitClose

@@ -387,6 +387,7 @@ private fun ChatArea(
 
 @Composable
 private fun ColumnScope.MessagesList(
+    modifier: Modifier = Modifier,
     messages: List<ChatMessage>,
     streamingMessageId: Long?,
     streamingContent: FormattedContent,

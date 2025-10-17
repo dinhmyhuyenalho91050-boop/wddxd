@@ -12,6 +12,7 @@ import com.example.aichat.model.MessageRole
 import com.example.aichat.model.ModelPreset
 import com.example.aichat.model.PromptPreset
 import com.example.aichat.model.SessionWithMessages
+import com.example.aichat.model.apply
 import com.example.aichat.network.ChatService
 import com.example.aichat.network.ChatService.StreamEvent
 import com.example.aichat.util.FormattedContent
@@ -607,7 +608,9 @@ class ChatViewModel(
             job.invokeOnCompletion { throwable ->
                 if (throwable != null) {
                     errorMessage.value = throwable.message ?: "发送失败"
-                    repository.updateMessage(assistantMessage.copy(isStreaming = false))
+                    viewModelScope.launch {
+                        repository.updateMessage(assistantMessage.copy(isStreaming = false))
+                    }
                     streamingState.value = null
                 }
             }
