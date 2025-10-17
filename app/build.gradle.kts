@@ -45,16 +45,16 @@ android {
         compose = true
     }
 
-    composeCompiler {
-        version = "1.7.1"
-        enableStrongSkippingMode = true
-    }
-
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+composeCompiler {
+    version = "1.7.1"
+    enableStrongSkippingMode = true
 }
 
 dependencies {
