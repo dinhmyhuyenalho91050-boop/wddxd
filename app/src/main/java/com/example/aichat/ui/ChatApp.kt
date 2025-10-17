@@ -775,7 +775,7 @@ private fun MessagesList(
     onRegenerate: (Long) -> Unit
 ) {
     val listState = rememberLazyListState()
-    val isNearBottom by remember {
+    val isNearBottom by remember(messages, listState) {
         derivedStateOf {
             if (messages.isEmpty()) {
                 true
