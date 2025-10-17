@@ -197,7 +197,8 @@ fun ChatApp(viewModel: ChatViewModel) {
                             onSaveEdit = viewModel::saveEditing,
                             onCancelEdit = viewModel::cancelEditing,
                             onDelete = viewModel::deleteMessage,
-                            onRegenerate = viewModel::regenerateMessage
+                            onRegenerate = viewModel::regenerateMessage,
+                            onStopStreaming = viewModel::stopStreaming
                         )
                     }
                 } else {
@@ -213,7 +214,8 @@ fun ChatApp(viewModel: ChatViewModel) {
                         onSaveEdit = viewModel::saveEditing,
                         onCancelEdit = viewModel::cancelEditing,
                         onDelete = viewModel::deleteMessage,
-                        onRegenerate = viewModel::regenerateMessage
+                        onRegenerate = viewModel::regenerateMessage,
+                        onStopStreaming = viewModel::stopStreaming
                     )
 
                     val overlayAlpha by animateFloatAsState(
@@ -710,7 +712,8 @@ private fun ChatArea(
     onSaveEdit: () -> Unit,
     onCancelEdit: () -> Unit,
     onDelete: (Long) -> Unit,
-    onRegenerate: (Long) -> Unit
+    onRegenerate: (Long) -> Unit,
+    onStopStreaming: () -> Unit
 ) {
     val density = LocalDensity.current
     var composerHeightPx by remember { mutableIntStateOf(0) }
@@ -752,7 +755,8 @@ private fun ChatArea(
             onComposerChange = onComposerChange,
             onSend = onSend,
             onModelSelect = onModelSelect,
-            onPromptSelect = onPromptSelect
+            onPromptSelect = onPromptSelect,
+            onStop = onStopStreaming
         )
     }
 }
@@ -1022,9 +1026,19 @@ private fun Composer(
     onComposerChange: (String) -> Unit,
     onSend: () -> Unit,
     onModelSelect: (ModelPreset) -> Unit,
-    onPromptSelect: (PromptPreset) -> Unit
+    onPromptSelect: (PromptPreset) -> Unit,
+    onStop: () -> Unit
 ) {
     val composerEnabled = uiState.editingMessageId == null && !uiState.isStreaming
+    val isStreaming = uiState.isStreaming
+    val buttonEnabled = if (isStreaming) {
+        true
+    } else {
+        composerEnabled && uiState.composerText.isNotBlank()
+    }
+    val buttonTone = if (isStreaming) ButtonTone.Danger else ButtonTone.Primary
+    val buttonText = if (isStreaming) "停止" else "发送"
+    val buttonAction = if (isStreaming) onStop else onSend
     Column(
         modifier
             .fillMaxWidth()
@@ -1072,10 +1086,10 @@ private fun Composer(
                 enabled = composerEnabled
             )
             GlowButton(
-                text = if (uiState.isStreaming) "生成中…" else "发送",
-                tone = ButtonTone.Primary,
-                enabled = composerEnabled && uiState.composerText.isNotBlank(),
-                leading = if (uiState.isStreaming) {
+                text = buttonText,
+                tone = buttonTone,
+                enabled = buttonEnabled,
+                leading = if (isStreaming) {
                     {
                         CircularProgressIndicator(
                             modifier = Modifier.size(14.dp),
@@ -1084,7 +1098,7 @@ private fun Composer(
                         )
                     }
                 } else null,
-                onClick = onSend
+                onClick = buttonAction
             )
         }
     }
