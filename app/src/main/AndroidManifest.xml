@@ -10,7 +10,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.AIChatNative">
+        android:theme="@style/Theme.AiChat">
         <activity
             android:name=".MainActivity"
             android:exported="true"
