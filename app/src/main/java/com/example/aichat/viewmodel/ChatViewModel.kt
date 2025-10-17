@@ -27,6 +27,20 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 
+private data class CoreState(
+    val sessions: List<ChatSession>,
+    val models: List<ModelPreset>,
+    val prompts: List<PromptPreset>,
+    val messages: List<ChatMessage>
+)
+
+private data class InteractionState(
+    val core: CoreState,
+    val composerText: String,
+    val isSidebarOpen: Boolean,
+    val isSettingsOpen: Boolean
+)
+
 class ChatViewModel(
     private val repository: ChatRepository,
     private val service: ChatService = ChatService()
@@ -70,36 +84,57 @@ class ChatViewModel(
 
     private var streamingJob: Job? = null
 
-    val uiState = combine(
+    private val coreState = combine(
         sessionsState,
         modelPresetsState,
         promptPresetsState,
-        messagesState,
+        messagesState
+    ) { sessions, models, prompts, messages ->
+        CoreState(sessions, models, prompts, messages)
+    }
+
+    private val interactionState = combine(
+        coreState,
         composerText,
         sidebarOpen,
-        settingsOpen,
+        settingsOpen
+    ) { core, composer, sidebar, settings ->
+        InteractionState(
+            core = core,
+            composerText = composer,
+            isSidebarOpen = sidebar,
+            isSettingsOpen = settings
+        )
+    }
+
+    val uiState = combine(
+        interactionState,
         streamingState,
         errorMessage,
         exportJson,
         settingsDraft,
         editingState
-    ) { sessions, models, prompts, messages, composer, sidebar, settings, streaming, error, export, draft, editing ->
+    ) { interaction, streaming, error, export, draft, editing ->
+        val core = interaction.core
+        val sessions = core.sessions
         val currentId = selectedSessionId.value ?: sessions.firstOrNull()?.id
         val session = sessions.find { it.id == currentId }
         val activeModel = session?.let { s ->
-            models.find { it.id == s.presetId && it.enabled } ?: models.firstOrNull { it.enabled }
-        }
-        val activePrompt = session?.let { s -> prompts.find { it.id == s.promptPresetId } } ?: prompts.firstOrNull()
+            core.models.find { it.id == s.presetId && it.enabled }
+        } ?: core.models.firstOrNull { it.enabled }
+        val activePrompt = session?.let { s ->
+            core.prompts.find { it.id == s.promptPresetId }
+        } ?: core.prompts.firstOrNull()
 
         ChatUiState(
             sessions = sessions,
             currentSessionId = currentId,
-            messages = messages,
-            composerText = composer,
-            isSidebarOpen = sidebar,
-            isSettingsOpen = settings,
-            modelPresets = models,
-            promptPresets = prompts,
+            messages = core.messages,
+            composerText = interaction.composerText,
+            isSidebarOpen = interaction.isSidebarOpen,
+            isSettingsOpen = interaction.isSettingsOpen,
+            modelPresets = core.models,
+            promptPresets = core.prompts,
             activeModelPreset = activeModel,
             activePromptPreset = activePrompt,
             isStreaming = streaming != null,
@@ -108,7 +143,7 @@ class ChatViewModel(
             streamingContent = streaming?.formatted ?: FormattedContent.Empty,
             errorMessage = error,
             exportJson = export,
-            settingsDraft = if (settings) draft else null,
+            settingsDraft = if (interaction.isSettingsOpen) draft else null,
             editingMessageId = editing?.message?.id,
             editingDraft = editing?.draft ?: ""
         )
