@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -72,6 +71,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -79,6 +79,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -253,9 +255,12 @@ private fun Sidebar(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical))
             .padding(16.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             Text("对话列表", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.weight(1f))
             IconButton(onClick = onClose) {
                 Icon(Icons.Default.Close, contentDescription = "关闭")
             }
@@ -351,13 +356,20 @@ private fun ChatArea(
     onDelete: (Long) -> Unit,
     onRegenerate: (Long) -> Unit
 ) {
-    Column(
+    val density = LocalDensity.current
+    var composerHeightPx by remember { mutableIntStateOf(0) }
+    val bottomPadding = with(density) { composerHeightPx.toDp() }
+
+    Box(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical))
     ) {
         MessagesList(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = bottomPadding),
             messages = uiState.messages,
             streamingMessageId = uiState.streamingMessageId,
             streamingContent = uiState.streamingContent,
@@ -372,8 +384,10 @@ private fun ChatArea(
             onDelete = onDelete,
             onRegenerate = onRegenerate
         )
-        Divider()
         Composer(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .onGloballyPositioned { composerHeightPx = it.size.height },
             uiState = uiState,
             onComposerChange = onComposerChange,
             onSend = onSend,
@@ -385,6 +399,7 @@ private fun ChatArea(
 
 @Composable
 private fun MessagesList(
+    modifier: Modifier = Modifier,
     messages: List<ChatMessage>,
     streamingMessageId: Long?,
     streamingContent: FormattedContent,
@@ -401,8 +416,7 @@ private fun MessagesList(
 ) {
     val listState = rememberLazyListState()
     LazyColumn(
-        modifier = Modifier
-            .weight(1f)
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp),
         state = listState,
@@ -465,16 +479,21 @@ private fun MessageCard(
             .background(background)
             .padding(16.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(CircleShape)
-                    .background(accent)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(if (message.role == MessageRole.USER) "用户" else "助手", fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.weight(1f))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(accent)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(if (message.role == MessageRole.USER) "用户" else "助手", fontWeight = FontWeight.SemiBold)
+            }
             Text("#${index + 1}", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
         }
         Spacer(Modifier.height(8.dp))
@@ -556,6 +575,7 @@ private fun AnnotatedString.Builder.appendSegments(segments: List<FormattedSegme
 
 @Composable
 private fun Composer(
+    modifier: Modifier = Modifier,
     uiState: ChatViewModel.ChatUiState,
     onComposerChange: (String) -> Unit,
     onSend: () -> Unit,
@@ -564,7 +584,7 @@ private fun Composer(
 ) {
     val composerEnabled = uiState.editingMessageId == null && !uiState.isStreaming
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
@@ -573,14 +593,16 @@ private fun Composer(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Divider()
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("模型预设", fontWeight = FontWeight.SemiBold)
             ModelSelector(
                 presets = uiState.modelPresets.filter { it.enabled },
                 selectedId = uiState.activeModelPreset?.id,
                 onSelect = onModelSelect
             )
-            Spacer(Modifier.weight(1f))
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("提示词", fontWeight = FontWeight.SemiBold)
             PromptSelector(
                 prompts = uiState.promptPresets,
@@ -588,16 +610,15 @@ private fun Composer(
                 onSelect = onPromptSelect
             )
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = uiState.composerText,
-                onValueChange = onComposerChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("输入消息后点击右侧“发送”") },
-                maxLines = 6,
-                enabled = composerEnabled
-            )
-            Spacer(Modifier.width(12.dp))
+        OutlinedTextField(
+            value = uiState.composerText,
+            onValueChange = onComposerChange,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("输入消息后点击右侧“发送”") },
+            maxLines = 6,
+            enabled = composerEnabled
+        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Button(onClick = onSend, enabled = composerEnabled && uiState.composerText.isNotBlank()) {
                 Icon(Icons.Default.Send, contentDescription = null)
                 Spacer(Modifier.width(6.dp))
@@ -697,13 +718,18 @@ private fun ModelPresetPane(presets: List<ModelPresetDraft>, onUpdate: (Int, (Mo
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         presets.forEach { preset ->
             OutlinedCard { Column(Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     Text("预设${preset.id}", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.weight(1f))
-                    Text("启用")
-                    Switch(checked = preset.enabled, onCheckedChange = { checked ->
-                        onUpdate(preset.id) { it.copy(enabled = checked) }
-                    })
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("启用")
+                        Switch(checked = preset.enabled, onCheckedChange = { checked ->
+                            onUpdate(preset.id) { it.copy(enabled = checked) }
+                        })
+                    }
                 }
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
@@ -855,55 +881,63 @@ private fun PromptPresetPane(
     onSavePromptAs: (Int) -> Unit,
     onDeletePrompt: (Int) -> Unit
 ) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Column(modifier = Modifier.width(220.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ElevatedButton(onClick = onCreatePrompt, modifier = Modifier.fillMaxWidth()) {
-                Text("新建提示词")
-            }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(draft.promptPresets, key = { it.id }) { preset ->
-                    val isSelected = preset.id == draft.selectedPromptId
-                    Card(
-                        modifier = Modifier.fillMaxWidth().clickable { onSelectPrompt(preset.id) },
-                        colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text(preset.name, fontWeight = FontWeight.Medium)
-                            Spacer(Modifier.height(4.dp))
-                            Text("ID: ${preset.id}", fontSize = 12.sp)
-                        }
-                    }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val detailWidth = (maxWidth - 220.dp - 16.dp).coerceAtLeast(0.dp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(modifier = Modifier.width(220.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ElevatedButton(onClick = onCreatePrompt, modifier = Modifier.fillMaxWidth()) {
+                    Text("新建提示词")
                 }
-            }
-        }
-        val current = draft.promptPresets.firstOrNull { it.id == draft.selectedPromptId }
-        if (current != null) {
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = current.name, onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(name = value) } }, label = { Text("预设名称") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = current.systemPrompt, onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(systemPrompt = value) } }, label = { Text("系统提示") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
-                OutlinedTextField(value = current.firstUser, onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(firstUser = value) } }, label = { Text("首条用户消息") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
-                OutlinedTextField(value = current.firstAssistant, onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(firstAssistant = value) } }, label = { Text("首条助手消息") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
-                OutlinedTextField(value = current.messagePrefix, onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(messagePrefix = value) } }, label = { Text("消息前缀") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-                OutlinedTextField(value = current.assistantPrefill, onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(assistantPrefill = value) } }, label = { Text("助手预填充") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-                Text("正则替换", fontWeight = FontWeight.SemiBold)
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    current.regexRules.forEach { rule ->
-                        OutlinedCard {
-                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(value = rule.pattern, onValueChange = { value -> onUpdatePrompt(current.id) { draft -> draft.copy(regexRules = draft.regexRules.map { if (it.id == rule.id) it.copy(pattern = value) else it }) } }, label = { Text("Pattern") }, modifier = Modifier.fillMaxWidth())
-                                OutlinedTextField(value = rule.replacement, onValueChange = { value -> onUpdatePrompt(current.id) { draft -> draft.copy(regexRules = draft.regexRules.map { if (it.id == rule.id) it.copy(replacement = value) else it }) } }, label = { Text("Replacement") }, modifier = Modifier.fillMaxWidth())
-                                OutlinedTextField(value = rule.flags, onValueChange = { value -> onUpdatePrompt(current.id) { draft -> draft.copy(regexRules = draft.regexRules.map { if (it.id == rule.id) it.copy(flags = value) else it }) } }, label = { Text("Flags") }, modifier = Modifier.fillMaxWidth())
-                                TextButton(onClick = { onRemoveRegex(current.id, rule.id) }) { Text("删除规则", color = Color.Red) }
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(draft.promptPresets, key = { it.id }) { preset ->
+                        val isSelected = preset.id == draft.selectedPromptId
+                        Card(
+                            modifier = Modifier.fillMaxWidth().clickable { onSelectPrompt(preset.id) },
+                            colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(preset.name, fontWeight = FontWeight.Medium)
+                                Spacer(Modifier.height(4.dp))
+                                Text("ID: ${preset.id}", fontSize = 12.sp)
                             }
                         }
                     }
                 }
-                OutlinedButton(onClick = { onAddRegex(current.id) }) {
-                    Text("添加规则")
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(onClick = { onSavePromptAs(current.id) }) { Text("另存为新预设") }
-                    OutlinedButton(onClick = { onDeletePrompt(current.id) }) { Text("删除预设", color = Color.Red) }
+            }
+            val current = draft.promptPresets.firstOrNull { it.id == draft.selectedPromptId }
+            if (current != null) {
+                val detailModifier = if (detailWidth > 0.dp) Modifier.width(detailWidth) else Modifier.fillMaxWidth()
+                Column(
+                    modifier = detailModifier
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(value = current.name, onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(name = value) } }, label = { Text("预设名称") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = current.systemPrompt, onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(systemPrompt = value) } }, label = { Text("系统提示") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+                    OutlinedTextField(value = current.firstUser, onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(firstUser = value) } }, label = { Text("首条用户消息") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+                    OutlinedTextField(value = current.firstAssistant, onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(firstAssistant = value) } }, label = { Text("首条助手消息") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+                    OutlinedTextField(value = current.messagePrefix, onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(messagePrefix = value) } }, label = { Text("消息前缀") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                    OutlinedTextField(value = current.assistantPrefill, onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(assistantPrefill = value) } }, label = { Text("助手预填充") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                    Text("正则替换", fontWeight = FontWeight.SemiBold)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        current.regexRules.forEach { rule ->
+                            OutlinedCard {
+                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(value = rule.pattern, onValueChange = { value -> onUpdatePrompt(current.id) { draft -> draft.copy(regexRules = draft.regexRules.map { if (it.id == rule.id) it.copy(pattern = value) else it }) } }, label = { Text("Pattern") }, modifier = Modifier.fillMaxWidth())
+                                    OutlinedTextField(value = rule.replacement, onValueChange = { value -> onUpdatePrompt(current.id) { draft -> draft.copy(regexRules = draft.regexRules.map { if (it.id == rule.id) it.copy(replacement = value) else it }) } }, label = { Text("Replacement") }, modifier = Modifier.fillMaxWidth())
+                                    OutlinedTextField(value = rule.flags, onValueChange = { value -> onUpdatePrompt(current.id) { draft -> draft.copy(regexRules = draft.regexRules.map { if (it.id == rule.id) it.copy(flags = value) else it }) } }, label = { Text("Flags") }, modifier = Modifier.fillMaxWidth())
+                                    TextButton(onClick = { onRemoveRegex(current.id, rule.id) }) { Text("删除规则", color = Color.Red) }
+                                }
+                            }
+                        }
+                    }
+                    OutlinedButton(onClick = { onAddRegex(current.id) }) {
+                        Text("添加规则")
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(onClick = { onSavePromptAs(current.id) }) { Text("另存为新预设") }
+                        OutlinedButton(onClick = { onDeletePrompt(current.id) }) { Text("删除预设", color = Color.Red) }
+                    }
                 }
             }
         }

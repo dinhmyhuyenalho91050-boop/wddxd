@@ -12,6 +12,7 @@ import com.example.aichat.model.MessageRole
 import com.example.aichat.model.ModelPreset
 import com.example.aichat.model.PromptPreset
 import com.example.aichat.model.SessionWithMessages
+import com.example.aichat.model.apply as applyRegexRule
 import com.example.aichat.network.ChatService
 import com.example.aichat.network.ChatService.StreamEvent
 import com.example.aichat.util.FormattedContent
@@ -84,37 +85,66 @@ class ChatViewModel(
 
     private var streamingJob: Job? = null
 
-    private val coreState = combine(
-        sessionsState,
-        modelPresetsState,
-        promptPresetsState,
-        messagesState
-    ) { sessions, models, prompts, messages ->
-        CoreState(sessions, models, prompts, messages)
-    }
+    private data class AggregateState(
+        val interaction: InteractionState,
+        val streaming: StreamingState?,
+        val error: String?,
+        val export: String?,
+        val draft: SettingsDraft?
+    )
 
-    private val interactionState = combine(
-        coreState,
-        composerText,
-        sidebarOpen,
-        settingsOpen
-    ) { core, composer, sidebar, settings ->
-        InteractionState(
-            core = core,
-            composerText = composer,
-            isSidebarOpen = sidebar,
-            isSettingsOpen = settings
-        )
-    }
+    private val coreState = sessionsState
+        .combine(modelPresetsState) { sessions, models ->
+            sessions to models
+        }
+        .combine(promptPresetsState) { (sessions, models), prompts ->
+            Triple(sessions, models, prompts)
+        }
+        .combine(messagesState) { (sessions, models, prompts), messages ->
+            CoreState(sessions, models, prompts, messages)
+        }
+
+    private val interactionState = coreState
+        .combine(composerText) { core, composer ->
+            core to composer
+        }
+        .combine(sidebarOpen) { (core, composer), sidebar ->
+            Triple(core, composer, sidebar)
+        }
+        .combine(settingsOpen) { (core, composer, sidebar), settings ->
+            InteractionState(
+                core = core,
+                composerText = composer,
+                isSidebarOpen = sidebar,
+                isSettingsOpen = settings
+            )
+        }
+
+    private val aggregateState = interactionState
+        .combine(streamingState) { interaction, streaming ->
+            interaction to streaming
+        }
+        .combine(errorMessage) { (interaction, streaming), error ->
+            Triple(interaction, streaming, error)
+        }
+        .combine(exportJson) { (interaction, streaming, error), export ->
+            AggregateState(
+                interaction = interaction,
+                streaming = streaming,
+                error = error,
+                export = export,
+                draft = null
+            )
+        }
+        .combine(settingsDraft) { aggregate, draft ->
+            aggregate.copy(draft = draft)
+        }
 
     val uiState = combine(
-        interactionState,
-        streamingState,
-        errorMessage,
-        exportJson,
-        settingsDraft,
+        aggregateState,
         editingState
-    ) { interaction, streaming, error, export, draft, editing ->
+    ) { aggregate, editing ->
+        val interaction = aggregate.interaction
         val core = interaction.core
         val sessions = core.sessions
         val currentId = selectedSessionId.value ?: sessions.firstOrNull()?.id
@@ -137,13 +167,13 @@ class ChatViewModel(
             promptPresets = core.prompts,
             activeModelPreset = activeModel,
             activePromptPreset = activePrompt,
-            isStreaming = streaming != null,
-            streamingMessageId = streaming?.messageId,
-            streamingThinking = streaming?.thinking.orEmpty(),
-            streamingContent = streaming?.formatted ?: FormattedContent.Empty,
-            errorMessage = error,
-            exportJson = export,
-            settingsDraft = if (interaction.isSettingsOpen) draft else null,
+            isStreaming = aggregate.streaming != null,
+            streamingMessageId = aggregate.streaming?.messageId,
+            streamingThinking = aggregate.streaming?.thinking.orEmpty(),
+            streamingContent = aggregate.streaming?.formatted ?: FormattedContent.Empty,
+            errorMessage = aggregate.error,
+            exportJson = aggregate.export,
+            settingsDraft = if (interaction.isSettingsOpen) aggregate.draft else null,
             editingMessageId = editing?.message?.id,
             editingDraft = editing?.draft ?: ""
         )
@@ -607,7 +637,9 @@ class ChatViewModel(
             job.invokeOnCompletion { throwable ->
                 if (throwable != null) {
                     errorMessage.value = throwable.message ?: "发送失败"
-                    repository.updateMessage(assistantMessage.copy(isStreaming = false))
+                    viewModelScope.launch {
+                        repository.updateMessage(assistantMessage.copy(isStreaming = false))
+                    }
                     streamingState.value = null
                 }
             }
@@ -655,7 +687,7 @@ class ChatViewModel(
     )
 
     private fun applyRegexRules(content: String, prompt: PromptPreset): String {
-        return prompt.regexRules.fold(content) { acc, rule -> rule.apply(acc) }
+        return prompt.regexRules.fold(content) { acc, rule -> rule.applyRegexRule(acc) }
     }
 
     companion object {
