@@ -29,6 +29,9 @@ interface ChatDao {
     @Query("SELECT * FROM messages WHERE sessionId = :sessionId ORDER BY createdAt ASC")
     suspend fun getMessages(sessionId: Long): List<ChatMessageEntity>
 
+    @Query("SELECT * FROM messages WHERE id = :id")
+    suspend fun getMessageById(id: Long): ChatMessageEntity?
+
     @Query("DELETE FROM messages WHERE id = :id")
     suspend fun deleteMessage(id: Long)
 

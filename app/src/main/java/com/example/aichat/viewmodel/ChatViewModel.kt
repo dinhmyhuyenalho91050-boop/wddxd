@@ -17,6 +17,7 @@ import com.example.aichat.network.ChatService
 import com.example.aichat.network.ChatService.StreamEvent
 import com.example.aichat.util.FormattedContent
 import com.example.aichat.util.StreamFormatter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -399,7 +400,9 @@ class ChatViewModel(
             ?: promptPresetsState.value.firstOrNull()
             ?: return
 
-        streamingJob?.cancel()
+        if (streamingState.value != null) {
+            stopStreaming()
+        }
         viewModelScope.launch {
             try {
                 composerText.value = ""
@@ -488,8 +491,7 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 if (streamingState.value?.messageId == messageId) {
-                    streamingJob?.cancel()
-                    streamingState.value = null
+                    stopStreaming()
                 }
                 if (editingState.value?.message?.id == messageId) {
                     editingState.value = null
@@ -580,7 +582,7 @@ class ChatViewModel(
 
         val sessionWithMessages = SessionWithMessages(session, history)
 
-        streamingJob = viewModelScope.launch {
+        val job = viewModelScope.launch {
             service.streamCompletion(sessionWithMessages, model, prompt).collect { event ->
                 when (event) {
                     is StreamEvent.Delta -> {
@@ -633,17 +635,50 @@ class ChatViewModel(
                     }
                 }
             }
-        }.also { job ->
-            job.invokeOnCompletion { throwable ->
-                if (throwable != null) {
-                    errorMessage.value = throwable.message ?: "发送失败"
-                    viewModelScope.launch {
-                        repository.updateMessage(assistantMessage.copy(isStreaming = false))
+        }
+        streamingJob = job
+        job.invokeOnCompletion { throwable ->
+            if (streamingJob === job) {
+                streamingJob = null
+            }
+            when {
+                throwable == null -> Unit
+                throwable is CancellationException -> {
+                    if (streamingState.value?.messageId == assistantMessage.id) {
+                        streamingState.value = null
+                        viewModelScope.launch {
+                            repository.message(assistantMessage.id)?.let { message ->
+                                if (message.isStreaming) {
+                                    repository.updateMessage(message.copy(isStreaming = false))
+                                }
+                            }
+                        }
                     }
+                }
+                else -> {
+                    errorMessage.value = throwable.message ?: "发送失败"
                     streamingState.value = null
+                    viewModelScope.launch {
+                        repository.message(assistantMessage.id)?.let { message ->
+                            repository.updateMessage(message.copy(isStreaming = false))
+                        }
+                    }
                 }
             }
         }
+    }
+
+    fun stopStreaming() {
+        val state = streamingState.value ?: return
+        streamingState.value = null
+        viewModelScope.launch {
+            repository.message(state.messageId)?.let { message ->
+                if (message.isStreaming) {
+                    repository.updateMessage(message.copy(isStreaming = false))
+                }
+            }
+        }
+        streamingJob?.cancel()
     }
 
     fun dismissError() {

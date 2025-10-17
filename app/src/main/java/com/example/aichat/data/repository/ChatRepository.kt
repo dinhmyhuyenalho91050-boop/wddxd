@@ -47,6 +47,10 @@ class ChatRepository private constructor(
         dao.getMessages(sessionId).map { it.toDomain() }
     }
 
+    suspend fun message(id: Long): ChatMessage? = withContext(Dispatchers.IO) {
+        dao.getMessageById(id)?.toDomain()
+    }
+
     val modelPresets: Flow<List<ModelPreset>> = dao.observeModelPresets().map { list ->
         list.mapNotNull { entity -> runCatching { json.decodeFromString<ModelPreset>(entity.data) }.getOrNull() }
     }
