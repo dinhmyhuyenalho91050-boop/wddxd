@@ -359,6 +359,7 @@ private fun ChatArea(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical))
     ) {
         MessagesList(
+            modifier = Modifier.weight(1f),
             messages = uiState.messages,
             streamingMessageId = uiState.streamingMessageId,
             streamingContent = uiState.streamingContent,
@@ -402,8 +403,7 @@ private fun ColumnScope.MessagesList(
 ) {
     val listState = rememberLazyListState()
     LazyColumn(
-        modifier = Modifier
-            .weight(1f)
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp),
         state = listState,
