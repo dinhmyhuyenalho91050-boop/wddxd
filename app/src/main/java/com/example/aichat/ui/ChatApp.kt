@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -358,6 +359,7 @@ private fun ChatArea(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical))
     ) {
         MessagesList(
+            modifier = Modifier.weight(1f),
             messages = uiState.messages,
             streamingMessageId = uiState.streamingMessageId,
             streamingContent = uiState.streamingContent,
@@ -384,7 +386,8 @@ private fun ChatArea(
 }
 
 @Composable
-private fun MessagesList(
+private fun ColumnScope.MessagesList(
+    modifier: Modifier = Modifier,
     messages: List<ChatMessage>,
     streamingMessageId: Long?,
     streamingContent: FormattedContent,
@@ -401,8 +404,7 @@ private fun MessagesList(
 ) {
     val listState = rememberLazyListState()
     LazyColumn(
-        modifier = Modifier
-            .weight(1f)
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp),
         state = listState,
