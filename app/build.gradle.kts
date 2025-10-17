@@ -1,4 +1,5 @@
 import java.util.Locale
+import org.jetbrains.kotlin.compose.compiler.tasks.ComposeFeatureFlag
 
 plugins {
     id("com.android.application")
@@ -10,12 +11,12 @@ plugins {
 
 android {
     namespace = "com.example.aichat"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.aichat"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
@@ -47,7 +48,7 @@ android {
 
     composeCompiler {
         version = "1.7.1"
-        enableStrongSkippingMode = true
+        featureFlags += ComposeFeatureFlag.StrongSkipping
     }
 
     packaging {
