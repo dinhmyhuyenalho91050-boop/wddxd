@@ -25,13 +25,11 @@ jobs:
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
           yes | sdkmanager --licenses
 
-      - name: Install Gradle 8.7
-        run: |
-          curl -sSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o gradle.zip
-          unzip -q gradle.zip
-          rm gradle.zip
-          chmod +x gradle-8.7/bin/gradle
-          echo "${PWD}/gradle-8.7/bin" >> "$GITHUB_PATH"
+      # 用官方 action 安装/配置 Gradle，并关闭缓存
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+          cache-disabled: true
 
       - name: Build debug APK
         run: gradle assembleDebug
