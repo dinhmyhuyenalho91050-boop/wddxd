@@ -93,44 +93,52 @@ class ChatViewModel(
         val draft: SettingsDraft?
     )
 
-    private val coreState = combine(
-        sessionsState,
-        modelPresetsState,
-        promptPresetsState,
-        messagesState
-    ) { sessions, models, prompts, messages ->
-        CoreState(sessions, models, prompts, messages)
-    }
+    private val coreState = sessionsState
+        .combine(modelPresetsState) { sessions, models ->
+            sessions to models
+        }
+        .combine(promptPresetsState) { (sessions, models), prompts ->
+            Triple(sessions, models, prompts)
+        }
+        .combine(messagesState) { (sessions, models, prompts), messages ->
+            CoreState(sessions, models, prompts, messages)
+        }
 
-    private val interactionState = combine(
-        coreState,
-        composerText,
-        sidebarOpen,
-        settingsOpen
-    ) { core, composer, sidebar, settings ->
-        InteractionState(
-            core = core,
-            composerText = composer,
-            isSidebarOpen = sidebar,
-            isSettingsOpen = settings
-        )
-    }
+    private val interactionState = coreState
+        .combine(composerText) { core, composer ->
+            core to composer
+        }
+        .combine(sidebarOpen) { (core, composer), sidebar ->
+            Triple(core, composer, sidebar)
+        }
+        .combine(settingsOpen) { (core, composer, sidebar), settings ->
+            InteractionState(
+                core = core,
+                composerText = composer,
+                isSidebarOpen = sidebar,
+                isSettingsOpen = settings
+            )
+        }
 
-    private val aggregateState = combine(
-        interactionState,
-        streamingState,
-        errorMessage,
-        exportJson,
-        settingsDraft
-    ) { interaction, streaming, error, export, draft ->
-        AggregateState(
-            interaction = interaction,
-            streaming = streaming,
-            error = error,
-            export = export,
-            draft = draft
-        )
-    }
+    private val aggregateState = interactionState
+        .combine(streamingState) { interaction, streaming ->
+            interaction to streaming
+        }
+        .combine(errorMessage) { (interaction, streaming), error ->
+            Triple(interaction, streaming, error)
+        }
+        .combine(exportJson) { (interaction, streaming, error), export ->
+            AggregateState(
+                interaction = interaction,
+                streaming = streaming,
+                error = error,
+                export = export,
+                draft = null
+            )
+        }
+        .combine(settingsDraft) { aggregate, draft ->
+            aggregate.copy(draft = draft)
+        }
 
     val uiState = combine(
         aggregateState,
