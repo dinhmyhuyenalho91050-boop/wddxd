@@ -212,13 +212,18 @@ class ChatService(
             }
         }
 
+        val useThinking = when (cfg) {
+            is com.example.aichat.model.GeminiConfig -> cfg.useThinking
+            is com.example.aichat.model.GeminiProxyConfig -> cfg.useThinking
+            else -> false
+        }
         val generationConfig = buildJsonObject {
             cfg.temperature?.let { put("temperature", it) }
             cfg.topP?.let { put("topP", it) }
             (cfg as? com.example.aichat.model.GeminiConfig)?.topK?.let { put("topK", it) }
             (cfg as? com.example.aichat.model.GeminiProxyConfig)?.topK?.let { put("topK", it) }
             cfg.maxTokens?.let { put("maxOutputTokens", it) }
-            if (cfg.useThinking) {
+            if (useThinking) {
                 val budget = when (cfg) {
                     is com.example.aichat.model.GeminiConfig -> cfg.thinkingBudget
                     is com.example.aichat.model.GeminiProxyConfig -> cfg.thinkingBudget
@@ -287,7 +292,7 @@ class ChatService(
         response: Response,
         type: ModelType,
         regexRules: List<RegexRule>,
-        emitter: kotlinx.coroutines.channels.ProducerScope<StreamEvent>
+        emitter: ProducerScope<StreamEvent>
     ) {
         val source = response.body?.source() ?: return
         var content = ""
