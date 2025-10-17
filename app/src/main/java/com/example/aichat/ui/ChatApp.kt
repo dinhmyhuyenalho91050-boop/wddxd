@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -406,7 +407,7 @@ private fun MessagesList(
             .padding(horizontal = 12.dp),
         state = listState,
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(vertical = 12.dp, bottom = 28.dp)
+        contentPadding = PaddingValues(top = 12.dp, bottom = 28.dp)
     ) {
         itemsIndexed(messages, key = { _, message -> message.id }) { index, message ->
             val isStreaming = message.id == streamingMessageId
