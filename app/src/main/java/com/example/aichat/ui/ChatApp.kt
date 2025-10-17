@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalLayoutApi::class, ExperimentalAnimationApi::class)
+@file:OptIn(ExperimentalLayoutApi::class, ExperimentalAnimationApi::class, ExperimentalFoundationApi::class)
 
 package com.example.aichat.ui
 
@@ -19,6 +19,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -55,7 +56,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shadow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -85,6 +85,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -114,6 +115,7 @@ import com.example.aichat.model.PromptPreset
 import com.example.aichat.ui.theme.AccentBlue
 import com.example.aichat.ui.theme.AccentGreen
 import com.example.aichat.ui.theme.AccentYellow
+import com.example.aichat.ui.theme.DangerRed
 import com.example.aichat.util.FormattedContent
 import com.example.aichat.util.FormattedSegment
 import com.example.aichat.util.SegmentStyle
