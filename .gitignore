@@ -32,3 +32,8 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Binary archives
+*.zip
+# Gradle wrapper binary
+gradle/wrapper/gradle-wrapper.jar

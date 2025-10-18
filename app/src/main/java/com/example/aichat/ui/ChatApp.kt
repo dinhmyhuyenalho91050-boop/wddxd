@@ -70,9 +70,8 @@ import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -81,15 +80,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -132,19 +134,12 @@ import com.example.aichat.viewmodel.changeType
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.coroutines.delay
 import kotlin.time.ExperimentalTime
 
 @Composable
 fun ChatApp(viewModel: ChatViewModel) {
     val uiState by viewModel.uiState.collectAsState()
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    LaunchedEffect(uiState.errorMessage) {
-        uiState.errorMessage?.let { message ->
-            snackbarHostState.showSnackbar(message)
-            viewModel.dismissError()
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -153,7 +148,6 @@ fun ChatApp(viewModel: ChatViewModel) {
                 onSettings = viewModel::openSettings
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0)
     ) { padding ->
@@ -273,6 +267,16 @@ fun ChatApp(viewModel: ChatViewModel) {
                             onDelete = viewModel::deleteSession
                         )
                     }
+                }
+
+                uiState.errorMessage?.let { message ->
+                    ErrorToast(
+                        message = message,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 80.dp, end = 20.dp),
+                        onDismiss = viewModel::dismissError
+                    )
                 }
 
                 if (uiState.isSettingsOpen) {
@@ -554,6 +558,65 @@ private fun GlowButton(
 }
 
 @Composable
+private fun ErrorToast(
+    message: String,
+    modifier: Modifier = Modifier,
+    onDismiss: () -> Unit
+) {
+    var visible by remember(message) { mutableStateOf(true) }
+
+    LaunchedEffect(message) {
+        visible = true
+        delay(3200)
+        visible = false
+        delay(220)
+        onDismiss()
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = slideInHorizontally(
+            initialOffsetX = { it / 2 },
+            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+        ) + fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)),
+        exit = slideOutHorizontally(
+            targetOffsetX = { it / 2 },
+            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+        ) + fadeOut(animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing))
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(DangerRed)
+                .padding(horizontal = 18.dp, vertical = 12.dp)
+        ) {
+            Text(
+                text = message,
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+private fun aiTextFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedContainerColor = Color(0xFF151921),
+    unfocusedContainerColor = Color(0xFF151921),
+    focusedTextColor = Color(0xFFE6E8EB),
+    unfocusedTextColor = Color(0xFFE6E8EB),
+    cursorColor = AccentBlue,
+    focusedBorderColor = AccentBlue,
+    unfocusedBorderColor = Color(0xFF1F2937),
+    focusedPlaceholderColor = Color(0xFF6B7280),
+    unfocusedPlaceholderColor = Color(0xFF6B7280)
+)
+
+private val TextFieldShape = RoundedCornerShape(16.dp)
+
+@Composable
 private fun Sidebar(
     modifier: Modifier = Modifier,
     uiState: ChatViewModel.ChatUiState,
@@ -601,24 +664,34 @@ private fun Sidebar(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("模型预设", fontSize = 12.sp, color = Color(0xFF9CA3AF), fontWeight = FontWeight.SemiBold)
-            ModelSelectorBar(
-                presets = enabledPresets,
-                selectedId = selectedPresetId.takeIf { it != -1 },
-                onSelect = { preset -> selectedPresetId = preset.id }
-            )
-            GlowButton(
-                text = "新建对话",
-                tone = ButtonTone.Primary,
-                enabled = selectedPresetId != -1 && activePromptId != null,
-                onClick = {
-                    val presetId = selectedPresetId
-                    val promptId = activePromptId
-                    if (presetId != -1 && promptId != null) {
-                        onNewChat(presetId, promptId)
+            if (enabledPresets.isEmpty()) {
+                Text("暂无启用的模型", color = Color(0xFF9CA3AF), fontSize = 12.sp)
+            } else {
+                ModelSelectorBar(
+                    presets = enabledPresets,
+                    selectedId = selectedPresetId.takeIf { it != -1 },
+                    modifier = Modifier.fillMaxWidth(),
+                    onSelect = { preset -> selectedPresetId = preset.id }
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                GlowButton(
+                    text = "新建",
+                    tone = ButtonTone.Primary,
+                    compact = true,
+                    enabled = selectedPresetId != -1 && activePromptId != null,
+                    onClick = {
+                        val presetId = selectedPresetId
+                        val promptId = activePromptId
+                        if (presetId != -1 && promptId != null) {
+                            onNewChat(presetId, promptId)
+                        }
                     }
-                }
-            )
+                )
+            }
         }
         Spacer(Modifier.height(20.dp))
         LazyColumn(
@@ -628,10 +701,14 @@ private fun Sidebar(
         ) {
             items(uiState.sessions, key = { it.id }) { session ->
                 val isActive = session.id == uiState.currentSessionId
+                val modelName = uiState.modelPresets.find { it.id == session.presetId }?.displayName ?: "未知"
+                val promptName = uiState.promptPresets.find { it.id == session.promptPresetId }?.name ?: "默认"
                 SessionCard(
                     session = session,
                     isActive = isActive,
-                    onClick = { onSelectSession(session.id) },
+                    modelName = modelName,
+                    promptName = promptName,
+                    onOpen = { onSelectSession(session.id) },
                     onRename = onRename,
                     onDelete = onDelete
                 )
@@ -644,7 +721,9 @@ private fun Sidebar(
 private fun SessionCard(
     session: com.example.aichat.model.ChatSession,
     isActive: Boolean,
-    onClick: () -> Unit,
+    modelName: String,
+    promptName: String,
+    onOpen: () -> Unit,
     onRename: (Long, String) -> Unit,
     onDelete: (Long) -> Unit
 ) {
@@ -663,17 +742,74 @@ private fun SessionCard(
             .clip(shape)
             .background(background, shape)
             .border(1.dp, borderColor, shape)
-            .clickable(onClick = onClick)
+            .clickable(onClick = onOpen)
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(session.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(formatInstant(session.updatedAt), fontSize = 12.sp, color = Color(0xFF9CA3AF))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                session.name,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0x22151921))
+                    .border(1.dp, Color(0xFF1F2937), RoundedCornerShape(8.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { showRename = true }
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text("✎", fontSize = 11.sp, color = Color(0xFF9CA3AF))
+            }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            GlowButton(text = "重命名", compact = true, onClick = { showRename = true })
-            GlowButton(text = "删除", compact = true, tone = ButtonTone.Danger, onClick = { onDelete(session.id) })
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color(0x33151921))
+                    .border(1.dp, Color(0xFF1F2937), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    modelName,
+                    color = AccentBlue,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Text(
+                "提示词: $promptName",
+                color = Color(0xFF9CA3AF),
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            GlowButton(text = "打开", compact = true, onClick = onOpen)
+            GlowButton(
+                text = "删除",
+                compact = true,
+                tone = ButtonTone.Danger,
+                onClick = { onDelete(session.id) }
+            )
         }
     }
 
@@ -685,7 +821,9 @@ private fun SessionCard(
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    label = { Text("名称") }
+                    label = { Text("名称") },
+                    colors = aiTextFieldColors(),
+                    shape = TextFieldShape,
                 )
             },
             confirmButton = {
@@ -699,11 +837,6 @@ private fun SessionCard(
             }
         )
     }
-}
-
-private fun formatInstant(instant: Instant): String {
-    val dt = instant.toLocalDateTime(TimeZone.currentSystemDefault())
-    return "${dt.date} ${dt.hour.toString().padStart(2, '0')}:${dt.minute.toString().padStart(2, '0')}"
 }
 
 @Composable
@@ -747,6 +880,7 @@ private fun ChatArea(
             editingMessageId = uiState.editingMessageId,
             editingDraft = uiState.editingDraft,
             actionsEnabled = !uiState.isStreaming && uiState.editingMessageId == null,
+            assistantModelName = uiState.activeModelPreset?.displayName,
             onStartEdit = onStartEdit,
             onEditChange = onEditChange,
             onSaveEdit = onSaveEdit,
@@ -778,6 +912,7 @@ private fun MessagesList(
     editingMessageId: Long?,
     editingDraft: String,
     actionsEnabled: Boolean,
+    assistantModelName: String?,
     onStartEdit: (Long) -> Unit,
     onEditChange: (String) -> Unit,
     onSaveEdit: () -> Unit,
@@ -836,6 +971,7 @@ private fun MessagesList(
                     thinking = if (isStreaming) thinking else message.thinking,
                     editingDraft = draft,
                     actionsEnabled = actionsEnabled,
+                    modelName = if (message.role == MessageRole.ASSISTANT) assistantModelName else null,
                     onStartEdit = { onStartEdit(message.id) },
                     onEditChange = onEditChange,
                     onSaveEdit = onSaveEdit,
@@ -858,6 +994,7 @@ private fun MessageCard(
     thinking: String,
     editingDraft: String?,
     actionsEnabled: Boolean,
+    modelName: String?,
     onStartEdit: () -> Unit,
     onEditChange: (String) -> Unit,
     onSaveEdit: () -> Unit,
@@ -882,6 +1019,13 @@ private fun MessageCard(
             .clip(shape)
             .background(background, shape)
             .border(1.dp, Color(0xFF1F2937), shape)
+            .drawBehind {
+                drawRect(
+                    color = accent,
+                    topLeft = Offset.Zero,
+                    size = Size(6.dp.toPx(), size.height)
+                )
+            }
     ) {
         Row(
             modifier = Modifier
@@ -901,7 +1045,17 @@ private fun MessageCard(
                         .clip(CircleShape)
                         .background(accent)
                 )
-                Text(if (message.role == MessageRole.USER) "用户" else "助手", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        message.role.name,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = Color(0xFFE6E8EB)
+                    )
+                    if (message.role == MessageRole.ASSISTANT && !modelName.isNullOrBlank()) {
+                        ModelBadge(modelName)
+                    }
+                }
             }
             Box(
                 modifier = Modifier
@@ -925,7 +1079,9 @@ private fun MessageCard(
                     onValueChange = onEditChange,
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 4,
-                    maxLines = 12
+                    maxLines = 12,
+                    colors = aiTextFieldColors(),
+                    shape = TextFieldShape,
                 )
             } else if (displayContent.isBlank()) {
                 Text("(空内容)", color = Color(0xFF9CA3AF))
@@ -989,6 +1145,19 @@ private fun MessageCard(
 }
 
 @Composable
+private fun ModelBadge(name: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color(0x3360A5FA))
+            .border(1.dp, AccentBlue, RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Text(name, color = AccentBlue, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
 private fun FormattedMessageBody(content: FormattedContent, showCursor: Boolean) {
     val annotated = remember(content, showCursor) {
         buildAnnotatedString {
@@ -1046,6 +1215,7 @@ private fun Composer(
     val buttonTone = if (isStreaming) ButtonTone.Danger else ButtonTone.Primary
     val buttonText = if (isStreaming) "停止" else "发送"
     val buttonAction = if (isStreaming) onStop else onSend
+    val enabledPresets = uiState.modelPresets.filter { it.enabled }
     Column(
         modifier
             .fillMaxWidth()
@@ -1061,17 +1231,15 @@ private fun Composer(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("模型预设", color = Color(0xFF9CA3AF), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        if (enabledPresets.size > 1) {
             ModelSelectorBar(
-                presets = uiState.modelPresets.filter { it.enabled },
+                presets = enabledPresets,
                 selectedId = uiState.activeModelPreset?.id,
                 modifier = Modifier.fillMaxWidth(),
                 onSelect = onModelSelect
             )
         }
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("提示词", color = Color(0xFF9CA3AF), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        if (uiState.promptPresets.size > 1) {
             PromptSelectorChips(
                 prompts = uiState.promptPresets,
                 selectedId = uiState.activePromptPreset?.id,
@@ -1090,7 +1258,9 @@ private fun Composer(
                 placeholder = { Text("输入消息后点击右侧“发送”", color = Color(0xFF9CA3AF)) },
                 maxLines = 6,
                 minLines = 3,
-                enabled = composerEnabled
+                enabled = composerEnabled,
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
             GlowButton(
                 text = buttonText,
@@ -1120,6 +1290,9 @@ private fun ModelSelectorBar(
 ) {
     if (presets.isEmpty()) {
         Text("暂无启用的模型", color = Color(0xFF9CA3AF), fontSize = 12.sp)
+        return
+    }
+    if (presets.size <= 1) {
         return
     }
     Row(
@@ -1352,11 +1525,16 @@ private fun ModelPresetPane(presets: List<ModelPresetDraft>, onUpdate: (Int, (Mo
                     OutlinedTextField(
                         value = preset.displayName,
                         onValueChange = { value -> onUpdate(preset.id) { it.copy(displayName = value) } },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = aiTextFieldColors(),
+                        shape = TextFieldShape,
                     )
                 }
                 SettingsField("模型类型") {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         ModelType.values().forEach { type ->
                             GlowButton(
                                 text = typeLabel(type),
@@ -1384,21 +1562,27 @@ private fun OpenAIConfigEditor(id: Int, config: OpenAIConfig, onUpdate: (Int, (M
             OutlinedTextField(
                 value = config.base,
                 onValueChange = { value -> onUpdate(id) { draft -> draft.copy(config = config.copy(base = value)) } },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("API Key") {
             OutlinedTextField(
                 value = config.key,
                 onValueChange = { value -> onUpdate(id) { draft -> draft.copy(config = config.copy(key = value)) } },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("模型") {
             OutlinedTextField(
                 value = config.model,
                 onValueChange = { value -> onUpdate(id) { draft -> draft.copy(config = config.copy(model = value)) } },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("Temperature") {
@@ -1408,7 +1592,9 @@ private fun OpenAIConfigEditor(id: Int, config: OpenAIConfig, onUpdate: (Int, (M
                     val parsed = number.toDoubleOrNull()
                     onUpdate(id) { draft -> draft.copy(config = config.copy(temperature = parsed)) }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("Top P") {
@@ -1418,7 +1604,9 @@ private fun OpenAIConfigEditor(id: Int, config: OpenAIConfig, onUpdate: (Int, (M
                     val parsed = number.toDoubleOrNull()
                     onUpdate(id) { draft -> draft.copy(config = config.copy(topP = parsed)) }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("Max Tokens") {
@@ -1428,7 +1616,9 @@ private fun OpenAIConfigEditor(id: Int, config: OpenAIConfig, onUpdate: (Int, (M
                     val parsed = number.toIntOrNull()
                     onUpdate(id) { draft -> draft.copy(config = config.copy(maxTokens = parsed)) }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("流式输出") {
@@ -1448,7 +1638,9 @@ private fun OpenAIConfigEditor(id: Int, config: OpenAIConfig, onUpdate: (Int, (M
                 OutlinedTextField(
                     value = config.thinkingEffort.orEmpty(),
                     onValueChange = { value -> onUpdate(id) { draft -> draft.copy(config = config.copy(thinkingEffort = value.ifBlank { null })) } },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = aiTextFieldColors(),
+                    shape = TextFieldShape,
                 )
             }
         }
@@ -1462,57 +1654,79 @@ private fun GeminiConfigEditor(id: Int, config: GeminiConfig, onUpdate: (Int, (M
             OutlinedTextField(
                 value = config.base,
                 onValueChange = { value -> onUpdate(id) { draft -> draft.copy(config = config.copy(base = value)) } },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("API Key") {
             OutlinedTextField(
                 value = config.key,
                 onValueChange = { value -> onUpdate(id) { draft -> draft.copy(config = config.copy(key = value)) } },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("模型") {
             OutlinedTextField(
                 value = config.model,
                 onValueChange = { value -> onUpdate(id) { draft -> draft.copy(config = config.copy(model = value)) } },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("Temperature") {
             OutlinedTextField(
                 value = config.temperature?.toString().orEmpty(),
                 onValueChange = { number ->
-                    onUpdate(id) { draft -> draft.copy(config = config.copy(temperature = number.toDoubleOrNull())) }
+                    onUpdate(id) { draft ->
+                        draft.copy(config = config.copy(temperature = number.toDoubleOrNull()))
+                    }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("Top P") {
             OutlinedTextField(
                 value = config.topP?.toString().orEmpty(),
                 onValueChange = { number ->
-                    onUpdate(id) { draft -> draft.copy(config = config.copy(topP = number.toDoubleOrNull())) }
+                    onUpdate(id) { draft ->
+                        draft.copy(config = config.copy(topP = number.toDoubleOrNull()))
+                    }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("Top K") {
             OutlinedTextField(
                 value = config.topK?.toString().orEmpty(),
                 onValueChange = { number ->
-                    onUpdate(id) { draft -> draft.copy(config = config.copy(topK = number.toIntOrNull())) }
+                    onUpdate(id) { draft ->
+                        draft.copy(config = config.copy(topK = number.toIntOrNull()))
+                    }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("Max Output Tokens") {
             OutlinedTextField(
                 value = config.maxTokens?.toString().orEmpty(),
                 onValueChange = { number ->
-                    onUpdate(id) { draft -> draft.copy(config = config.copy(maxTokens = number.toIntOrNull())) }
+                    onUpdate(id) { draft ->
+                        draft.copy(config = config.copy(maxTokens = number.toIntOrNull()))
+                    }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("流式输出") {
@@ -1532,9 +1746,13 @@ private fun GeminiConfigEditor(id: Int, config: GeminiConfig, onUpdate: (Int, (M
                 OutlinedTextField(
                     value = config.thinkingBudget?.toString().orEmpty(),
                     onValueChange = { number ->
-                        onUpdate(id) { draft -> draft.copy(config = config.copy(thinkingBudget = number.toIntOrNull())) }
+                        onUpdate(id) { draft ->
+                            draft.copy(config = config.copy(thinkingBudget = number.toIntOrNull()))
+                        }
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = aiTextFieldColors(),
+                    shape = TextFieldShape,
                 )
             }
         }
@@ -1548,57 +1766,79 @@ private fun GeminiProxyConfigEditor(id: Int, config: GeminiProxyConfig, onUpdate
             OutlinedTextField(
                 value = config.proxyUrl,
                 onValueChange = { value -> onUpdate(id) { draft -> draft.copy(config = config.copy(proxyUrl = value)) } },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("代理密钥") {
             OutlinedTextField(
                 value = config.proxyPass,
                 onValueChange = { value -> onUpdate(id) { draft -> draft.copy(config = config.copy(proxyPass = value)) } },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("模型") {
             OutlinedTextField(
                 value = config.model,
                 onValueChange = { value -> onUpdate(id) { draft -> draft.copy(config = config.copy(model = value)) } },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("Temperature") {
             OutlinedTextField(
                 value = config.temperature?.toString().orEmpty(),
                 onValueChange = { number ->
-                    onUpdate(id) { draft -> draft.copy(config = config.copy(temperature = number.toDoubleOrNull())) }
+                    onUpdate(id) { draft ->
+                        draft.copy(config = config.copy(temperature = number.toDoubleOrNull()))
+                    }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("Top P") {
             OutlinedTextField(
                 value = config.topP?.toString().orEmpty(),
                 onValueChange = { number ->
-                    onUpdate(id) { draft -> draft.copy(config = config.copy(topP = number.toDoubleOrNull())) }
+                    onUpdate(id) { draft ->
+                        draft.copy(config = config.copy(topP = number.toDoubleOrNull()))
+                    }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("Top K") {
             OutlinedTextField(
                 value = config.topK?.toString().orEmpty(),
                 onValueChange = { number ->
-                    onUpdate(id) { draft -> draft.copy(config = config.copy(topK = number.toIntOrNull())) }
+                    onUpdate(id) { draft ->
+                        draft.copy(config = config.copy(topK = number.toIntOrNull()))
+                    }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("Max Output Tokens") {
             OutlinedTextField(
                 value = config.maxTokens?.toString().orEmpty(),
                 onValueChange = { number ->
-                    onUpdate(id) { draft -> draft.copy(config = config.copy(maxTokens = number.toIntOrNull())) }
+                    onUpdate(id) { draft ->
+                        draft.copy(config = config.copy(maxTokens = number.toIntOrNull()))
+                    }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
         }
         SettingsField("流式输出") {
@@ -1618,9 +1858,13 @@ private fun GeminiProxyConfigEditor(id: Int, config: GeminiProxyConfig, onUpdate
                 OutlinedTextField(
                     value = config.thinkingBudget?.toString().orEmpty(),
                     onValueChange = { number ->
-                        onUpdate(id) { draft -> draft.copy(config = config.copy(thinkingBudget = number.toIntOrNull())) }
+                        onUpdate(id) { draft ->
+                            draft.copy(config = config.copy(thinkingBudget = number.toIntOrNull()))
+                        }
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = aiTextFieldColors(),
+                    shape = TextFieldShape,
                 )
             }
         }
@@ -1700,7 +1944,9 @@ private fun PromptPresetPane(
                         OutlinedTextField(
                             value = current.name,
                             onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(name = value) } },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = aiTextFieldColors(),
+                            shape = TextFieldShape,
                         )
                     }
                     SettingsField("系统提示", alignTop = true) {
@@ -1708,7 +1954,9 @@ private fun PromptPresetPane(
                             value = current.systemPrompt,
                             onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(systemPrompt = value) } },
                             modifier = Modifier.fillMaxWidth(),
-                            minLines = 3
+                            minLines = 3,
+                            colors = aiTextFieldColors(),
+                            shape = TextFieldShape,
                         )
                     }
                     SettingsField("首条用户消息", alignTop = true) {
@@ -1716,7 +1964,9 @@ private fun PromptPresetPane(
                             value = current.firstUser,
                             onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(firstUser = value) } },
                             modifier = Modifier.fillMaxWidth(),
-                            minLines = 3
+                            minLines = 3,
+                            colors = aiTextFieldColors(),
+                            shape = TextFieldShape,
                         )
                     }
                     SettingsField("首条助手消息", alignTop = true) {
@@ -1724,7 +1974,9 @@ private fun PromptPresetPane(
                             value = current.firstAssistant,
                             onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(firstAssistant = value) } },
                             modifier = Modifier.fillMaxWidth(),
-                            minLines = 3
+                            minLines = 3,
+                            colors = aiTextFieldColors(),
+                            shape = TextFieldShape,
                         )
                     }
                     SettingsField("消息前缀", alignTop = true) {
@@ -1732,7 +1984,9 @@ private fun PromptPresetPane(
                             value = current.messagePrefix,
                             onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(messagePrefix = value) } },
                             modifier = Modifier.fillMaxWidth(),
-                            minLines = 2
+                            minLines = 2,
+                            colors = aiTextFieldColors(),
+                            shape = TextFieldShape,
                         )
                     }
                     SettingsField("助手预填充", alignTop = true) {
@@ -1740,7 +1994,9 @@ private fun PromptPresetPane(
                             value = current.assistantPrefill,
                             onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(assistantPrefill = value) } },
                             modifier = Modifier.fillMaxWidth(),
-                            minLines = 2
+                            minLines = 2,
+                            colors = aiTextFieldColors(),
+                            shape = TextFieldShape,
                         )
                     }
                 }
@@ -1755,22 +2011,52 @@ private fun PromptPresetPane(
                                     SettingsField("Pattern", alignTop = true) {
                                         OutlinedTextField(
                                             value = rule.pattern,
-                                            onValueChange = { value -> onUpdatePrompt(current.id) { draft -> draft.copy(regexRules = draft.regexRules.map { if (it.id == rule.id) it.copy(pattern = value) else it }) } },
-                                            modifier = Modifier.fillMaxWidth()
+                                            onValueChange = { value ->
+                                                onUpdatePrompt(current.id) { draft ->
+                                                    draft.copy(
+                                                        regexRules = draft.regexRules.map { currentRule ->
+                                                            if (currentRule.id == rule.id) currentRule.copy(pattern = value) else currentRule
+                                                        }
+                                                    )
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = aiTextFieldColors(),
+                                            shape = TextFieldShape,
                                         )
                                     }
                                     SettingsField("Replacement", alignTop = true) {
                                         OutlinedTextField(
                                             value = rule.replacement,
-                                            onValueChange = { value -> onUpdatePrompt(current.id) { draft -> draft.copy(regexRules = draft.regexRules.map { if (it.id == rule.id) it.copy(replacement = value) else it }) } },
-                                            modifier = Modifier.fillMaxWidth()
+                                            onValueChange = { value ->
+                                                onUpdatePrompt(current.id) { draft ->
+                                                    draft.copy(
+                                                        regexRules = draft.regexRules.map { currentRule ->
+                                                            if (currentRule.id == rule.id) currentRule.copy(replacement = value) else currentRule
+                                                        }
+                                                    )
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = aiTextFieldColors(),
+                                            shape = TextFieldShape,
                                         )
                                     }
                                     SettingsField("Flags") {
                                         OutlinedTextField(
                                             value = rule.flags,
-                                            onValueChange = { value -> onUpdatePrompt(current.id) { draft -> draft.copy(regexRules = draft.regexRules.map { if (it.id == rule.id) it.copy(flags = value) else it }) } },
-                                            modifier = Modifier.fillMaxWidth()
+                                            onValueChange = { value ->
+                                                onUpdatePrompt(current.id) { draft ->
+                                                    draft.copy(
+                                                        regexRules = draft.regexRules.map { currentRule ->
+                                                            if (currentRule.id == rule.id) currentRule.copy(flags = value) else currentRule
+                                                        }
+                                                    )
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = aiTextFieldColors(),
+                                            shape = TextFieldShape,
                                         )
                                     }
                                     GlowButton(
@@ -1819,18 +2105,22 @@ private fun BackupPane(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(160.dp),
-                    readOnly = true
+                    readOnly = true,
+                    colors = aiTextFieldColors(),
+                    shape = TextFieldShape,
                 )
             }
         }
-        SettingsCard(title = "导入") {
+        SettingsCard(title = "导入") { 
             OutlinedTextField(
                 value = importText,
                 onValueChange = { importText = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(160.dp),
-                label = { Text("粘贴备份 JSON") }
+                label = { Text("粘贴备份 JSON") },
+                colors = aiTextFieldColors(),
+                shape = TextFieldShape,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 GlowButton(
