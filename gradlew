@@ -117,8 +117,8 @@ esac
 WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
 CLASSPATH="$WRAPPER_JAR"
 
-WRAPPER_URL="${GRADLE_WRAPPER_URL:-https://github.com/gradle/gradle/raw/v8.7.0/gradle/wrapper/gradle-wrapper.jar}"
-WRAPPER_SHA256="${GRADLE_WRAPPER_SHA256:-cb0da6751c2b753a16ac168bb354870ebb1e162e9083f116729cec9c781156b8}"
+WRAPPER_URL="${GRADLE_WRAPPER_URL:-https://github.com/gradle/gradle/raw/v8.11.1/gradle/wrapper/gradle-wrapper.jar}"
+WRAPPER_SHA256="${GRADLE_WRAPPER_SHA256:-2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046}"
 
 ensure_wrapper_jar() {
     if [ -f "$WRAPPER_JAR" ]; then

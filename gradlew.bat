@@ -73,12 +73,12 @@ goto fail
 
 set WRAPPER_JAR=%APP_HOME%\gradle\wrapper\gradle-wrapper.jar
 if "%GRADLE_WRAPPER_URL%"=="" (
-    set "WRAPPER_URL=https://github.com/gradle/gradle/raw/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+    set "WRAPPER_URL=https://github.com/gradle/gradle/raw/v8.11.1/gradle/wrapper/gradle-wrapper.jar"
 ) else (
     set "WRAPPER_URL=%GRADLE_WRAPPER_URL%"
 )
 if "%GRADLE_WRAPPER_SHA256%"=="" (
-    set "WRAPPER_SHA256=cb0da6751c2b753a16ac168bb354870ebb1e162e9083f116729cec9c781156b8"
+    set "WRAPPER_SHA256=2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046"
 ) else (
     set "WRAPPER_SHA256=%GRADLE_WRAPPER_SHA256%"
 )
