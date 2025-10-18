@@ -1,3 +1,5 @@
+@file:OptIn(kotlin.time.ExperimentalTime::class)
+
 package com.example.aichat.data.repository
 
 import android.content.Context
@@ -26,6 +28,7 @@ import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlin.time.ExperimentalTime
 
 class ChatRepository private constructor(
     private val dao: ChatDao,
