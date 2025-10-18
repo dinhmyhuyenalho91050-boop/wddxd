@@ -161,6 +161,25 @@ class ChatRepository private constructor(
         dao.upsertPromptPreset(PromptPresetEntity(preset.id, json.encodeToString(preset)))
     }
 
+    suspend fun saveSettings(
+        modelPresets: List<ModelPreset>,
+        promptPresets: List<PromptPreset>
+    ) = withContext(Dispatchers.IO) {
+        modelPresets.forEach { preset ->
+            dao.upsertModelPreset(ModelPresetEntity(preset.id, json.encodeToString(preset)))
+        }
+
+        val incomingPromptIds = promptPresets.map { it.id }.toSet()
+        dao.getPromptPresets()
+            .map { it.id }
+            .filterNot { it in incomingPromptIds }
+            .forEach { dao.deletePromptPreset(it) }
+
+        promptPresets.forEach { preset ->
+            dao.upsertPromptPreset(PromptPresetEntity(preset.id, json.encodeToString(preset)))
+        }
+    }
+
     suspend fun deletePromptPreset(id: Int) = withContext(Dispatchers.IO) {
         dao.deletePromptPreset(id)
     }

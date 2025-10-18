@@ -362,22 +362,45 @@ private fun SettingsField(
     alignTop: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(
-            text = label,
-            color = Color(0xFF9CA3AF),
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(top = if (alignTop) 2.dp else 0.dp)
-        )
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            content = content
-        )
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val stacked = maxWidth < 520.dp
+        if (stacked) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = label,
+                    color = Color(0xFF9CA3AF),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = if (alignTop) 2.dp else 0.dp)
+                )
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    content = content
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = if (alignTop) Alignment.Top else Alignment.CenterVertically
+            ) {
+                Text(
+                    text = label,
+                    color = Color(0xFF9CA3AF),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .width(140.dp)
+                        .padding(top = if (alignTop) 6.dp else 0.dp)
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    content = content
+                )
+            }
+        }
     }
 }
 
@@ -2122,6 +2145,23 @@ private fun PromptPresetEditor(
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         current.regexRules.forEachIndexed { index, rule ->
                             SettingsCard(title = "规则 #${index + 1}", accent = AccentYellow) {
+                                SettingsField("规则名称") {
+                                    OutlinedTextField(
+                                        value = rule.name,
+                                        onValueChange = { value ->
+                                            onUpdatePrompt(current.id) { draft ->
+                                                draft.copy(
+                                                    regexRules = draft.regexRules.map { currentRule ->
+                                                        if (currentRule.id == rule.id) currentRule.copy(name = value) else currentRule
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = aiTextFieldColors(),
+                                        shape = TextFieldShape,
+                                    )
+                                }
                                 SettingsField("Pattern", alignTop = true) {
                                     OutlinedTextField(
                                         value = rule.pattern,

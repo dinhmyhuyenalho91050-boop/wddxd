@@ -260,6 +260,7 @@ class ChatViewModel(
     fun closeSettings() {
         settingsOpen.value = false
         exportJson.value = null
+        settingsDraft.value = null
     }
 
     fun setSelectedPromptForSettings(id: Int) {
@@ -281,7 +282,15 @@ class ChatViewModel(
     fun addRegexRuleToPrompt(promptId: Int) {
         updatePromptPreset(promptId) { prompt ->
             val nextId = (prompt.regexRules.maxOfOrNull { it.id } ?: -1) + 1
-            prompt.copy(regexRules = prompt.regexRules + RegexRuleDraft(nextId, pattern = "", replacement = "", flags = ""))
+            prompt.copy(
+                regexRules = prompt.regexRules + RegexRuleDraft(
+                    nextId,
+                    pattern = "",
+                    replacement = "",
+                    flags = "",
+                    name = ""
+                )
+            )
         }
     }
 
@@ -294,9 +303,16 @@ class ChatViewModel(
     fun applySettings() {
         val draft = settingsDraft.value ?: return
         viewModelScope.launch {
-            draft.modelPresets.forEach { repository.saveModelPreset(it.toPreset()) }
-            draft.promptPresets.forEach { repository.savePromptPreset(it.toPreset()) }
-            settingsOpen.value = false
+            try {
+                repository.saveSettings(
+                    modelPresets = draft.modelPresets.map { it.toPreset() },
+                    promptPresets = draft.promptPresets.map { it.toPreset() }
+                )
+                settingsOpen.value = false
+                settingsDraft.value = null
+            } catch (t: Throwable) {
+                errorMessage.value = t.message ?: "保存失败"
+            }
         }
     }
 
