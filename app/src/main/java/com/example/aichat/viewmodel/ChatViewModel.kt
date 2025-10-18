@@ -10,6 +10,8 @@ import com.example.aichat.data.repository.ChatRepository
 import com.example.aichat.data.repository.ImportMode
 import com.example.aichat.model.ChatMessage
 import com.example.aichat.model.ChatSession
+import com.example.aichat.model.DefaultModelPresets
+import com.example.aichat.model.DefaultPromptPreset
 import com.example.aichat.model.MessageRole
 import com.example.aichat.model.ModelPreset
 import com.example.aichat.model.PromptPreset
@@ -229,13 +231,30 @@ class ChatViewModel(
     }
 
     fun openSettings() {
-        val newDraft = SettingsDraft(
-            modelPresets = modelPresetsState.value.map { it.toDraft() },
-            promptPresets = promptPresetsState.value.map { it.toDraft() },
-            selectedPromptId = promptPresetsState.value.firstOrNull()?.id
+        val currentModels = modelPresetsState.value.takeIf { it.isNotEmpty() } ?: DefaultModelPresets
+        val currentPrompts = promptPresetsState.value.takeIf { it.isNotEmpty() } ?: listOf(DefaultPromptPreset)
+        val fallbackDraft = SettingsDraft(
+            modelPresets = currentModels.map { it.toDraft() },
+            promptPresets = currentPrompts.map { it.toDraft() },
+            selectedPromptId = currentPrompts.firstOrNull()?.id
         )
-        settingsDraft.value = newDraft
+
+        settingsDraft.value = fallbackDraft
         settingsOpen.value = true
+
+        if (modelPresetsState.value.isEmpty() || promptPresetsState.value.isEmpty()) {
+            viewModelScope.launch {
+                val (models, prompts) = repository.ensureDefaults()
+                val updatedDraft = SettingsDraft(
+                    modelPresets = models.map { it.toDraft() },
+                    promptPresets = prompts.map { it.toDraft() },
+                    selectedPromptId = prompts.firstOrNull()?.id
+                )
+                settingsDraft.update { current ->
+                    if (current == fallbackDraft && settingsOpen.value) updatedDraft else current
+                }
+            }
+        }
     }
 
     fun closeSettings() {
