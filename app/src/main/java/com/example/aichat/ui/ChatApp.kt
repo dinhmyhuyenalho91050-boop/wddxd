@@ -1,4 +1,9 @@
-@file:OptIn(ExperimentalLayoutApi::class, ExperimentalAnimationApi::class, ExperimentalFoundationApi::class)
+@file:OptIn(
+    ExperimentalLayoutApi::class,
+    ExperimentalAnimationApi::class,
+    ExperimentalFoundationApi::class,
+    ExperimentalTime::class
+)
 
 package com.example.aichat.ui
 
@@ -128,6 +133,7 @@ import com.example.aichat.viewmodel.changeType
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlin.time.ExperimentalTime
 
 @Composable
 fun ChatApp(viewModel: ChatViewModel) {

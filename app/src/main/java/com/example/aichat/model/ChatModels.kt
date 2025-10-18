@@ -1,8 +1,11 @@
+@file:OptIn(kotlin.time.ExperimentalTime::class)
+
 package com.example.aichat.model
 
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.serialization.Serializable
+import kotlin.time.ExperimentalTime
 
 @Serializable
 data class ChatSession(
