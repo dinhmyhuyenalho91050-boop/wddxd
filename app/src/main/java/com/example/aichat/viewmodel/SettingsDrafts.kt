@@ -57,9 +57,10 @@ data class RegexRuleDraft(
     val id: Int,
     val pattern: String,
     val replacement: String,
-    val flags: String
+    val flags: String,
+    val name: String
 ) {
-    fun toRule(): RegexRule = RegexRule(pattern = pattern, replacement = replacement, flags = flags)
+    fun toRule(): RegexRule = RegexRule(pattern = pattern, replacement = replacement, flags = flags, name = name)
 }
 
 fun ModelPreset.toDraft(): ModelPresetDraft = ModelPresetDraft(id, enabled, displayName, type, config)
@@ -73,7 +74,7 @@ fun PromptPreset.toDraft(): PromptPresetDraft = PromptPresetDraft(
     messagePrefix = messagePrefix,
     assistantPrefill = assistantPrefill,
     regexRules = regexRules.mapIndexed { index, rule ->
-        RegexRuleDraft(index, rule.pattern, rule.replacement, rule.flags)
+        RegexRuleDraft(index, rule.pattern, rule.replacement, rule.flags, rule.name)
     }
 )
 

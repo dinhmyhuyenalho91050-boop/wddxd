@@ -7,7 +7,8 @@ import java.util.concurrent.ConcurrentHashMap
 data class RegexRule(
     val pattern: String,
     val replacement: String,
-    val flags: String = ""
+    val flags: String = "",
+    val name: String = ""
 )
 
 fun RegexRule.apply(input: String): String = try {

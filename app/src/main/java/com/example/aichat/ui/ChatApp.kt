@@ -28,6 +28,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -361,25 +362,45 @@ private fun SettingsField(
     alignTop: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val verticalAlignment = if (alignTop) Alignment.Top else Alignment.CenterVertically
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = verticalAlignment
-    ) {
-        Text(
-            label,
-            color = Color(0xFF9CA3AF),
-            fontSize = 13.sp,
-            modifier = Modifier
-                .width(140.dp)
-                .padding(top = if (alignTop) 6.dp else 0.dp)
-        )
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            content = content
-        )
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val stacked = maxWidth < 520.dp
+        if (stacked) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = label,
+                    color = Color(0xFF9CA3AF),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = if (alignTop) 2.dp else 0.dp)
+                )
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    content = content
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = if (alignTop) Alignment.Top else Alignment.CenterVertically
+            ) {
+                Text(
+                    text = label,
+                    color = Color(0xFF9CA3AF),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .width(140.dp)
+                        .padding(top = if (alignTop) 6.dp else 0.dp)
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    content = content
+                )
+            }
+        }
     }
 }
 
@@ -1906,24 +1927,95 @@ private fun PromptPresetPane(
     onSavePromptAs: (Int) -> Unit,
     onDeletePrompt: (Int) -> Unit
 ) {
-    val scrollState = rememberScrollState()
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-        Column(modifier = Modifier.width(240.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            GlowButton(
-                text = "新建提示词",
-                tone = ButtonTone.Primary,
-                onClick = onCreatePrompt,
-                modifier = Modifier.fillMaxWidth()
-            )
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val isCompact = maxWidth < 720.dp
+        val contentSpacing = 20.dp
+        val editorScrollState = rememberScrollState()
+
+        if (isCompact) {
             Column(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0x33151921))
-                    .border(1.dp, Color(0xFF1F2937), RoundedCornerShape(16.dp))
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(contentSpacing)
             ) {
-                LazyColumn(
+                PromptPresetSelector(
                     modifier = Modifier.fillMaxWidth(),
+                    draft = draft,
+                    onSelectPrompt = onSelectPrompt,
+                    onCreatePrompt = onCreatePrompt
+                )
+                PromptPresetEditor(
+                    modifier = Modifier.fillMaxWidth(),
+                    scrollState = editorScrollState,
+                    draft = draft,
+                    onUpdatePrompt = onUpdatePrompt,
+                    onAddRegex = onAddRegex,
+                    onRemoveRegex = onRemoveRegex,
+                    onSavePromptAs = onSavePromptAs,
+                    onDeletePrompt = onDeletePrompt
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(contentSpacing),
+                verticalAlignment = Alignment.Top
+            ) {
+                PromptPresetSelector(
+                    modifier = Modifier.widthIn(max = 280.dp),
+                    draft = draft,
+                    onSelectPrompt = onSelectPrompt,
+                    onCreatePrompt = onCreatePrompt
+                )
+                PromptPresetEditor(
+                    modifier = Modifier.weight(1f),
+                    scrollState = editorScrollState,
+                    draft = draft,
+                    onUpdatePrompt = onUpdatePrompt,
+                    onAddRegex = onAddRegex,
+                    onRemoveRegex = onRemoveRegex,
+                    onSavePromptAs = onSavePromptAs,
+                    onDeletePrompt = onDeletePrompt
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PromptPresetSelector(
+    modifier: Modifier,
+    draft: SettingsDraft,
+    onSelectPrompt: (Int) -> Unit,
+    onCreatePrompt: () -> Unit
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("提示词预设", fontWeight = FontWeight.SemiBold, color = Color.White)
+        GlowButton(
+            text = "新建提示词",
+            tone = ButtonTone.Primary,
+            onClick = onCreatePrompt,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0x33151921))
+                .border(1.dp, Color(0xFF1F2937), RoundedCornerShape(16.dp))
+        ) {
+            if (draft.promptPresets.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("暂无提示词预设", color = Color(0xFF9CA3AF))
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(12.dp)
                 ) {
@@ -1953,153 +2045,190 @@ private fun PromptPresetPane(
                 }
             }
         }
-        val current = draft.promptPresets.firstOrNull { it.id == draft.selectedPromptId }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(scrollState),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            if (current == null) {
-                Text("请选择左侧的提示词预设进行编辑", color = Color(0xFF9CA3AF))
-            } else {
-                SettingsCard(title = "基础配置") {
-                    SettingsField("预设名称") {
-                        OutlinedTextField(
-                            value = current.name,
-                            onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(name = value) } },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = aiTextFieldColors(),
-                            shape = TextFieldShape,
-                        )
-                    }
-                    SettingsField("系统提示", alignTop = true) {
-                        OutlinedTextField(
-                            value = current.systemPrompt,
-                            onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(systemPrompt = value) } },
-                            modifier = Modifier.fillMaxWidth(),
-                            minLines = 3,
-                            colors = aiTextFieldColors(),
-                            shape = TextFieldShape,
-                        )
-                    }
-                    SettingsField("首条用户消息", alignTop = true) {
-                        OutlinedTextField(
-                            value = current.firstUser,
-                            onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(firstUser = value) } },
-                            modifier = Modifier.fillMaxWidth(),
-                            minLines = 3,
-                            colors = aiTextFieldColors(),
-                            shape = TextFieldShape,
-                        )
-                    }
-                    SettingsField("首条助手消息", alignTop = true) {
-                        OutlinedTextField(
-                            value = current.firstAssistant,
-                            onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(firstAssistant = value) } },
-                            modifier = Modifier.fillMaxWidth(),
-                            minLines = 3,
-                            colors = aiTextFieldColors(),
-                            shape = TextFieldShape,
-                        )
-                    }
-                    SettingsField("消息前缀", alignTop = true) {
-                        OutlinedTextField(
-                            value = current.messagePrefix,
-                            onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(messagePrefix = value) } },
-                            modifier = Modifier.fillMaxWidth(),
-                            minLines = 2,
-                            colors = aiTextFieldColors(),
-                            shape = TextFieldShape,
-                        )
-                    }
-                    SettingsField("助手预填充", alignTop = true) {
-                        OutlinedTextField(
-                            value = current.assistantPrefill,
-                            onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(assistantPrefill = value) } },
-                            modifier = Modifier.fillMaxWidth(),
-                            minLines = 2,
-                            colors = aiTextFieldColors(),
-                            shape = TextFieldShape,
-                        )
-                    }
-                }
+    }
+}
 
-                SettingsCard(title = "正则替换", accent = AccentYellow) {
-                    if (current.regexRules.isEmpty()) {
-                        Text("暂无规则", color = Color(0xFF9CA3AF))
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            current.regexRules.forEachIndexed { index, rule ->
-                                SettingsCard(title = "规则 #${index + 1}", accent = AccentYellow) {
-                                    SettingsField("Pattern", alignTop = true) {
-                                        OutlinedTextField(
-                                            value = rule.pattern,
-                                            onValueChange = { value ->
-                                                onUpdatePrompt(current.id) { draft ->
-                                                    draft.copy(
-                                                        regexRules = draft.regexRules.map { currentRule ->
-                                                            if (currentRule.id == rule.id) currentRule.copy(pattern = value) else currentRule
-                                                        }
-                                                    )
-                                                }
-                                            },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = aiTextFieldColors(),
-                                            shape = TextFieldShape,
-                                        )
-                                    }
-                                    SettingsField("Replacement", alignTop = true) {
-                                        OutlinedTextField(
-                                            value = rule.replacement,
-                                            onValueChange = { value ->
-                                                onUpdatePrompt(current.id) { draft ->
-                                                    draft.copy(
-                                                        regexRules = draft.regexRules.map { currentRule ->
-                                                            if (currentRule.id == rule.id) currentRule.copy(replacement = value) else currentRule
-                                                        }
-                                                    )
-                                                }
-                                            },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = aiTextFieldColors(),
-                                            shape = TextFieldShape,
-                                        )
-                                    }
-                                    SettingsField("Flags") {
-                                        OutlinedTextField(
-                                            value = rule.flags,
-                                            onValueChange = { value ->
-                                                onUpdatePrompt(current.id) { draft ->
-                                                    draft.copy(
-                                                        regexRules = draft.regexRules.map { currentRule ->
-                                                            if (currentRule.id == rule.id) currentRule.copy(flags = value) else currentRule
-                                                        }
-                                                    )
-                                                }
-                                            },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = aiTextFieldColors(),
-                                            shape = TextFieldShape,
-                                        )
-                                    }
-                                    GlowButton(
-                                        text = "删除规则",
-                                        compact = true,
-                                        tone = ButtonTone.Danger,
-                                        onClick = { onRemoveRegex(current.id, rule.id) }
+@Composable
+private fun PromptPresetEditor(
+    modifier: Modifier,
+    scrollState: ScrollState,
+    draft: SettingsDraft,
+    onUpdatePrompt: (Int, (PromptPresetDraft) -> PromptPresetDraft) -> Unit,
+    onAddRegex: (Int) -> Unit,
+    onRemoveRegex: (Int, Int) -> Unit,
+    onSavePromptAs: (Int) -> Unit,
+    onDeletePrompt: (Int) -> Unit
+) {
+    val current = draft.promptPresets.firstOrNull { it.id == draft.selectedPromptId }
+    Column(
+        modifier = modifier.verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("编辑预设", fontWeight = FontWeight.SemiBold, color = Color.White)
+            val statusText = current?.let { "当前: ${it.name}" } ?: "未选择预设"
+            Text(statusText, fontSize = 12.sp, color = Color(0xFF9CA3AF))
+        }
+        if (current == null) {
+            Text("请选择提示词预设进行编辑", color = Color(0xFF9CA3AF))
+        } else {
+            SettingsCard(title = "基础配置") {
+                SettingsField("预设名称") {
+                    OutlinedTextField(
+                        value = current.name,
+                        onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(name = value) } },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = aiTextFieldColors(),
+                        shape = TextFieldShape,
+                    )
+                }
+                SettingsField("系统提示", alignTop = true) {
+                    OutlinedTextField(
+                        value = current.systemPrompt,
+                        onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(systemPrompt = value) } },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        colors = aiTextFieldColors(),
+                        shape = TextFieldShape,
+                    )
+                }
+                SettingsField("首条用户消息", alignTop = true) {
+                    OutlinedTextField(
+                        value = current.firstUser,
+                        onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(firstUser = value) } },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        colors = aiTextFieldColors(),
+                        shape = TextFieldShape,
+                    )
+                }
+                SettingsField("首条助手消息", alignTop = true) {
+                    OutlinedTextField(
+                        value = current.firstAssistant,
+                        onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(firstAssistant = value) } },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        colors = aiTextFieldColors(),
+                        shape = TextFieldShape,
+                    )
+                }
+                SettingsField("消息前缀", alignTop = true) {
+                    OutlinedTextField(
+                        value = current.messagePrefix,
+                        onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(messagePrefix = value) } },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                        colors = aiTextFieldColors(),
+                        shape = TextFieldShape,
+                    )
+                }
+                SettingsField("助手预填充", alignTop = true) {
+                    OutlinedTextField(
+                        value = current.assistantPrefill,
+                        onValueChange = { value -> onUpdatePrompt(current.id) { it.copy(assistantPrefill = value) } },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                        colors = aiTextFieldColors(),
+                        shape = TextFieldShape,
+                    )
+                }
+            }
+
+            SettingsCard(title = "正则替换", accent = AccentYellow) {
+                if (current.regexRules.isEmpty()) {
+                    Text("暂无规则", color = Color(0xFF9CA3AF))
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        current.regexRules.forEachIndexed { index, rule ->
+                            SettingsCard(title = "规则 #${index + 1}", accent = AccentYellow) {
+                                SettingsField("规则名称") {
+                                    OutlinedTextField(
+                                        value = rule.name,
+                                        onValueChange = { value ->
+                                            onUpdatePrompt(current.id) { draft ->
+                                                draft.copy(
+                                                    regexRules = draft.regexRules.map { currentRule ->
+                                                        if (currentRule.id == rule.id) currentRule.copy(name = value) else currentRule
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = aiTextFieldColors(),
+                                        shape = TextFieldShape,
                                     )
                                 }
+                                SettingsField("Pattern", alignTop = true) {
+                                    OutlinedTextField(
+                                        value = rule.pattern,
+                                        onValueChange = { value ->
+                                            onUpdatePrompt(current.id) { draft ->
+                                                draft.copy(
+                                                    regexRules = draft.regexRules.map { currentRule ->
+                                                        if (currentRule.id == rule.id) currentRule.copy(pattern = value) else currentRule
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = aiTextFieldColors(),
+                                        shape = TextFieldShape,
+                                    )
+                                }
+                                SettingsField("Replacement", alignTop = true) {
+                                    OutlinedTextField(
+                                        value = rule.replacement,
+                                        onValueChange = { value ->
+                                            onUpdatePrompt(current.id) { draft ->
+                                                draft.copy(
+                                                    regexRules = draft.regexRules.map { currentRule ->
+                                                        if (currentRule.id == rule.id) currentRule.copy(replacement = value) else currentRule
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = aiTextFieldColors(),
+                                        shape = TextFieldShape,
+                                    )
+                                }
+                                SettingsField("Flags") {
+                                    OutlinedTextField(
+                                        value = rule.flags,
+                                        onValueChange = { value ->
+                                            onUpdatePrompt(current.id) { draft ->
+                                                draft.copy(
+                                                    regexRules = draft.regexRules.map { currentRule ->
+                                                        if (currentRule.id == rule.id) currentRule.copy(flags = value) else currentRule
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = aiTextFieldColors(),
+                                        shape = TextFieldShape,
+                                    )
+                                }
+                                GlowButton(
+                                    text = "删除规则",
+                                    compact = true,
+                                    tone = ButtonTone.Danger,
+                                    onClick = { onRemoveRegex(current.id, rule.id) }
+                                )
                             }
                         }
                     }
-                    GlowButton(text = "添加规则", compact = true, onClick = { onAddRegex(current.id) })
                 }
+                GlowButton(text = "添加规则", compact = true, onClick = { onAddRegex(current.id) })
+            }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    GlowButton(text = "另存为新预设", compact = true, onClick = { onSavePromptAs(current.id) })
-                    GlowButton(text = "删除预设", compact = true, tone = ButtonTone.Danger, onClick = { onDeletePrompt(current.id) })
-                }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                GlowButton(text = "另存为新预设", compact = true, onClick = { onSavePromptAs(current.id) })
+                GlowButton(text = "删除预设", compact = true, tone = ButtonTone.Danger, onClick = { onDeletePrompt(current.id) })
             }
         }
     }
@@ -2118,12 +2247,6 @@ private fun BackupPane(
         modifier = Modifier.verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        SettingsCard(title = "存储说明", accent = AccentBlue) {
-            Text(
-                "使用 IndexedDB 存储，容量更大，性能更好。请定期导出备份重要对话。",
-                color = Color(0xFFE6E8EB)
-            )
-        }
         SettingsCard(title = "导出") {
             GlowButton(text = "导出所有数据", tone = ButtonTone.Primary, onClick = onExportAll)
             if (exportJson != null) {
