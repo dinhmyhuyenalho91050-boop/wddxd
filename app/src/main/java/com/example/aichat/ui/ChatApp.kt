@@ -99,7 +99,6 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -828,8 +827,7 @@ private fun MessagesList(
                         fadeInSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
                         placementSpec = tween(
                             durationMillis = 220,
-                            easing = FastOutSlowInEasing,
-                            typeConverter = IntOffset.VectorConverter
+                            easing = FastOutSlowInEasing
                         ),
                         fadeOutSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
                     ),
