@@ -56,7 +56,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.animateItemPlacement
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -829,12 +828,7 @@ private fun MessagesList(
                 ) + fadeOut(animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing))
             ) {
                 MessageCard(
-                    modifier = Modifier.animateItemPlacement(
-                        animationSpec = tween(
-                            durationMillis = 220,
-                            easing = FastOutSlowInEasing
-                        )
-                    ),
+                    modifier = Modifier,
                     index = index,
                     message = message,
                     isStreaming = isStreaming,
