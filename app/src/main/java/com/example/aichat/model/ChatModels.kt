@@ -3,7 +3,7 @@
 package com.example.aichat.model
 
 import kotlinx.datetime.Instant
-import kotlinx.datetime.Clock as DateTimeClock
+import kotlinx.datetime.Clock
 import kotlinx.serialization.Serializable
 import kotlin.time.ExperimentalTime
 
@@ -11,8 +11,8 @@ import kotlin.time.ExperimentalTime
 data class ChatSession(
     val id: Long,
     val name: String,
-    val createdAt: Instant = DateTimeClock.System.now(),
-    val updatedAt: Instant = DateTimeClock.System.now(),
+    val createdAt: Instant = Clock.System.now(),
+    val updatedAt: Instant = Clock.System.now(),
     val presetId: Int = 1,
     val promptPresetId: Int = 1
 )
@@ -24,7 +24,7 @@ data class ChatMessage(
     val role: MessageRole,
     val content: String,
     val thinking: String = "",
-    val createdAt: Instant = DateTimeClock.System.now(),
+    val createdAt: Instant = Clock.System.now(),
     val isStreaming: Boolean = false
 )
 
