@@ -45,10 +45,6 @@ android {
         compose = true
     }
 
-    composeCompiler {
-        version = "2.0.20"
-    }
-
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
