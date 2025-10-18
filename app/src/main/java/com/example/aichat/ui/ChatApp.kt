@@ -1499,19 +1499,6 @@ private fun SettingsDialog(
                                         animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing)
                                     )
                                 )
-                        }
-                    ) { tab ->
-                        when (tab) {
-                            SettingsTab.MODELS -> ModelPresetPane(draft.modelPresets, onUpdateModel)
-                            SettingsTab.PROMPTS -> PromptPresetPane(
-                                draft = draft,
-                                onUpdatePrompt = onUpdatePrompt,
-                                onAddRegex = onAddRegex,
-                                onRemoveRegex = onRemoveRegex,
-                                onSelectPrompt = onSelectPrompt,
-                                onCreatePrompt = onCreatePrompt,
-                                onSavePromptAs = onSavePromptAs,
-                                onDeletePrompt = onDeletePrompt
                             )
                             SettingsTab.BACKUP -> BackupPane(
                                 exportJson = exportJson,
@@ -1522,6 +1509,23 @@ private fun SettingsDialog(
                         }
                     }
                 }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(Color(0x331F2937))
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GlowButton(text = "取消", compact = true, onClick = onDismiss)
+                Spacer(Modifier.width(12.dp))
+                GlowButton(text = "应用", compact = true, tone = ButtonTone.Primary, onClick = onApply)
             }
             Box(
                 modifier = Modifier
