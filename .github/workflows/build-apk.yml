@@ -11,7 +11,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout (with Git LFS)
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Ensure LFS objects present
+        run: |
+          git lfs install
+          git lfs pull
+          git lfs ls-files
 
       - uses: actions/setup-java@v4
         with:
@@ -22,7 +32,7 @@ jobs:
 
       - name: Install SDKs & accept licenses
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
           yes | sdkmanager --licenses
 
       - name: Build debug APK
