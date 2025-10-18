@@ -1,4 +1,3 @@
-# Track common binaries with Git LFS
 *.png  filter=lfs diff=lfs merge=lfs -text
 *.jpg  filter=lfs diff=lfs merge=lfs -text
 *.jpeg filter=lfs diff=lfs merge=lfs -text
@@ -8,5 +7,7 @@
 *.otf  filter=lfs diff=lfs merge=lfs -text
 *.aar  filter=lfs diff=lfs merge=lfs -text
 *.jar  filter=lfs diff=lfs merge=lfs -text
+*.zip  filter=lfs diff=lfs merge=lfs -text
+*.so   filter=lfs diff=lfs merge=lfs -text
 *.mp4  filter=lfs diff=lfs merge=lfs -text
 *.mp3  filter=lfs diff=lfs merge=lfs -text
