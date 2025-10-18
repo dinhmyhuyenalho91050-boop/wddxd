@@ -57,6 +57,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -306,47 +307,29 @@ fun ChatApp(viewModel: ChatViewModel) {
 }
 
 @Composable
-private fun SettingsNavButton(
+private fun SettingsTabButton(
     text: String,
     selected: Boolean,
-    onClick: () -> Unit,
-    showDivider: Boolean = true
+    onClick: () -> Unit
 ) {
-    val background = if (selected) Color(0x2660A5FA) else Color.Transparent
-    val textColor = if (selected) AccentBlue else Color(0xFF9CA3AF)
-    val indicatorColor = if (selected) AccentBlue else Color.Transparent
+    val shape = RoundedCornerShape(999.dp)
+    val background = if (selected) {
+        Brush.horizontalGradient(listOf(AccentBlue, Color(0xFF60A5FA)))
+    } else {
+        SolidColor(Color(0x22151921))
+    }
+    val borderColor = if (selected) Color.Transparent else Color(0xFF1F2937)
+    val textColor = if (selected) Color.White else Color(0xFF9CA3AF)
 
-    Column(
+    Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(background)
+            .clip(shape)
+            .background(background, shape)
+            .border(1.dp, borderColor, shape)
             .clickable(onClick = onClick)
+            .padding(horizontal = 22.dp, vertical = 10.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .height(28.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(indicatorColor)
-            )
-            Text(text = text, color = textColor, fontWeight = FontWeight.SemiBold)
-        }
-        if (showDivider) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(Color(0x221F2937))
-            )
-        }
+        Text(text = text, color = textColor, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -1462,86 +1445,87 @@ private fun SettingsDialog(
                     .height(1.dp)
                     .background(Color(0x331F2937))
             )
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 520.dp)
+                    .padding(horizontal = 24.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                Column(
+                Row(
                     modifier = Modifier
-                        .width(220.dp)
-                        .fillMaxHeight()
-                        .background(Color(0x33151921))
-                        .verticalScroll(navScrollState)
-                        .padding(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                        .fillMaxWidth()
+                        .horizontalScroll(navScrollState),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    SettingsNavButton(
+                    SettingsTabButton(
                         text = "模型预设",
                         selected = selectedTab == SettingsTab.MODELS,
                         onClick = { selectedTab = SettingsTab.MODELS }
                     )
-                    SettingsNavButton(
+                    SettingsTabButton(
                         text = "提示词",
                         selected = selectedTab == SettingsTab.PROMPTS,
                         onClick = { selectedTab = SettingsTab.PROMPTS }
                     )
-                    SettingsNavButton(
+                    SettingsTabButton(
                         text = "备份",
                         selected = selectedTab == SettingsTab.BACKUP,
-                        onClick = { selectedTab = SettingsTab.BACKUP },
-                        showDivider = false
+                        onClick = { selectedTab = SettingsTab.BACKUP }
                     )
                 }
                 Box(
                     modifier = Modifier
-                        .width(1.dp)
-                        .fillMaxHeight()
-                        .background(Color(0x331F2937))
-                )
-                AnimatedContent(
-                    targetState = selectedTab,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
                         .background(Color(0x11151921))
-                        .padding(24.dp),
-                    transitionSpec = {
-                        (
-                            fadeIn(animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)) +
-                                slideInVertically(
-                                    initialOffsetY = { it / 8 },
-                                    animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
-                                )
-                            ) togetherWith (
-                            fadeOut(animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing)) +
-                                slideOutVertically(
-                                    targetOffsetY = { -it / 10 },
-                                    animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing)
+                        .border(1.dp, Color(0x331F2937), RoundedCornerShape(20.dp))
+                        .padding(24.dp)
+                ) {
+                    AnimatedContent(
+                        targetState = selectedTab,
+                        modifier = Modifier.fillMaxWidth(),
+                        transitionSpec = {
+                            (
+                                fadeIn(animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)) +
+                                    slideInVertically(
+                                        initialOffsetY = { it / 8 },
+                                        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                                    )
+                                ) togetherWith (
+                                fadeOut(animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing)) +
+                                    slideOutVertically(
+                                        targetOffsetY = { -it / 10 },
+                                        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing)
+                                    )
                                 )
                             )
-                    }
-                ) { tab ->
-                    when (tab) {
-                        SettingsTab.MODELS -> ModelPresetPane(draft.modelPresets, onUpdateModel)
-                        SettingsTab.PROMPTS -> PromptPresetPane(
-                            draft = draft,
-                            onUpdatePrompt = onUpdatePrompt,
-                            onAddRegex = onAddRegex,
-                            onRemoveRegex = onRemoveRegex,
-                            onSelectPrompt = onSelectPrompt,
-                            onCreatePrompt = onCreatePrompt,
-                            onSavePromptAs = onSavePromptAs,
-                            onDeletePrompt = onDeletePrompt
-                        )
-                        SettingsTab.BACKUP -> BackupPane(
-                            exportJson = exportJson,
-                            onExportAll = onExportAll,
-                            onImport = onImport,
-                            onClearAll = onClearAll
-                        )
+                            SettingsTab.BACKUP -> BackupPane(
+                                exportJson = exportJson,
+                                onExportAll = onExportAll,
+                                onImport = onImport,
+                                onClearAll = onClearAll
+                            )
+                        }
                     }
                 }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(Color(0x331F2937))
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GlowButton(text = "取消", compact = true, onClick = onDismiss)
+                Spacer(Modifier.width(12.dp))
+                GlowButton(text = "应用", compact = true, tone = ButtonTone.Primary, onClick = onApply)
             }
             Box(
                 modifier = Modifier
