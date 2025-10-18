@@ -1411,6 +1411,7 @@ private fun SettingsDialog(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
+            val navScrollState = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1437,7 +1438,14 @@ private fun SettingsDialog(
                     horizontalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
                     Column(
-                        modifier = Modifier.width(200.dp),
+                        modifier = Modifier
+                            .width(220.dp)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0x33151921))
+                            .border(1.dp, Color(0xFF1F2937), RoundedCornerShape(16.dp))
+                            .verticalScroll(navScrollState)
+                            .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         SettingsNavButton("模型预设", selected = selectedTab == SettingsTab.MODELS) {
@@ -1512,7 +1520,11 @@ private fun SettingsDialog(
 
 @Composable
 private fun ModelPresetPane(presets: List<ModelPresetDraft>, onUpdate: (Int, (ModelPresetDraft) -> ModelPresetDraft) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    val scrollState = rememberScrollState()
+    Column(
+        modifier = Modifier.verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
         presets.forEach { preset ->
             SettingsCard(title = "预设${preset.id}") {
                 SettingsField("启用") {
@@ -2089,7 +2101,11 @@ private fun BackupPane(
     onClearAll: () -> Unit
 ) {
     var importText by remember { mutableStateOf("") }
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    val scrollState = rememberScrollState()
+    Column(
+        modifier = Modifier.verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
         SettingsCard(title = "存储说明", accent = AccentBlue) {
             Text(
                 "使用 IndexedDB 存储，容量更大，性能更好。请定期导出备份重要对话。",
