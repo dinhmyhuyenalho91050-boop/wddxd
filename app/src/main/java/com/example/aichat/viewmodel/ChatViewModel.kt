@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
 import kotlin.time.ExperimentalTime
 
 private data class CoreState(
@@ -38,6 +38,8 @@ private data class CoreState(
     val prompts: List<PromptPreset>,
     val messages: List<ChatMessage>
 )
+
+private fun currentInstant(): Instant = Instant.fromEpochMilliseconds(System.currentTimeMillis())
 
 private data class InteractionState(
     val core: CoreState,
@@ -338,7 +340,7 @@ class ChatViewModel(
                         sessionId = id,
                         role = MessageRole.ASSISTANT,
                         content = prompt.firstAssistant,
-                        createdAt = Clock.System.now()
+                        createdAt = currentInstant()
                     )
                 )
             }
@@ -409,7 +411,7 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 composerText.value = ""
-                val createdAt = Clock.System.now()
+                val createdAt = currentInstant()
                 val userMessage = ChatMessage(
                     id = 0,
                     sessionId = sessionId,
@@ -418,7 +420,7 @@ class ChatViewModel(
                     createdAt = createdAt
                 )
                 val userId = repository.appendMessage(sessionId, userMessage)
-                val assistantTime = Clock.System.now()
+                val assistantTime = currentInstant()
                 val assistantMessage = ChatMessage(
                     id = 0,
                     sessionId = sessionId,
@@ -544,7 +546,7 @@ class ChatViewModel(
                     sessionId = sessionId,
                     role = MessageRole.ASSISTANT,
                     content = prompt.assistantPrefill,
-                    createdAt = Clock.System.now(),
+                    createdAt = currentInstant(),
                     thinking = "",
                     isStreaming = true
                 )

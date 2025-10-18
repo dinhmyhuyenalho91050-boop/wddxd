@@ -25,7 +25,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.Instant
-import kotlinx.datetime.Clock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.time.ExperimentalTime
@@ -83,7 +82,7 @@ class ChatRepository private constructor(
 
         val hasSession = dao.observeSessions().first().isNotEmpty()
         if (!hasSession) {
-            val now = Clock.System.now()
+            val now = currentInstant()
             dao.upsertSession(
                 ChatSessionEntity(
                     name = "新的对话",
@@ -99,7 +98,7 @@ class ChatRepository private constructor(
     }
 
     suspend fun createSession(name: String, presetId: Int, promptPresetId: Int): Long = withContext(Dispatchers.IO) {
-        val now = Clock.System.now().toString()
+        val now = currentInstant().toString()
         dao.upsertSession(
             ChatSessionEntity(
                 name = name,
@@ -113,17 +112,17 @@ class ChatRepository private constructor(
 
     suspend fun renameSession(id: Long, name: String) = withContext(Dispatchers.IO) {
         val entity = dao.getSession(id) ?: return@withContext
-        dao.upsertSession(entity.copy(name = name, updatedAt = Clock.System.now().toString()))
+        dao.upsertSession(entity.copy(name = name, updatedAt = currentInstant().toString()))
     }
 
     suspend fun updateSessionModel(id: Long, presetId: Int) = withContext(Dispatchers.IO) {
         val entity = dao.getSession(id) ?: return@withContext
-        dao.upsertSession(entity.copy(presetId = presetId, updatedAt = Clock.System.now().toString()))
+        dao.upsertSession(entity.copy(presetId = presetId, updatedAt = currentInstant().toString()))
     }
 
     suspend fun updateSessionPrompt(id: Long, promptId: Int) = withContext(Dispatchers.IO) {
         val entity = dao.getSession(id) ?: return@withContext
-        dao.upsertSession(entity.copy(promptPresetId = promptId, updatedAt = Clock.System.now().toString()))
+        dao.upsertSession(entity.copy(promptPresetId = promptId, updatedAt = currentInstant().toString()))
     }
 
     suspend fun deleteSession(id: Long) = withContext(Dispatchers.IO) {
@@ -135,7 +134,7 @@ class ChatRepository private constructor(
         val id = dao.insertMessage(message.toEntity())
         val session = dao.getSession(sessionId)
         if (session != null) {
-            dao.upsertSession(session.copy(updatedAt = Clock.System.now().toString()))
+            dao.upsertSession(session.copy(updatedAt = currentInstant().toString()))
         }
         id
     }
@@ -262,3 +261,5 @@ data class BackupBundle(
             json.decodeFromString(raw)
     }
 }
+
+private fun currentInstant(): Instant = Instant.fromEpochMilliseconds(System.currentTimeMillis())
