@@ -1,5 +1,4 @@
 import java.util.Locale
-import org.jetbrains.kotlin.compose.compiler.tasks.ComposeFeatureFlag
 
 plugins {
     id("com.android.application")
@@ -47,8 +46,7 @@ android {
     }
 
     composeCompiler {
-        version = "1.7.1"
-        featureFlags += ComposeFeatureFlag.StrongSkipping
+        version = "2.0.20"
     }
 
     packaging {
