@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.datetime.Clock as DateTimeClock
+import kotlinx.datetime.Clock
 import kotlin.time.ExperimentalTime
 
 private data class CoreState(
@@ -338,7 +338,7 @@ class ChatViewModel(
                         sessionId = id,
                         role = MessageRole.ASSISTANT,
                         content = prompt.firstAssistant,
-                        createdAt = DateTimeClock.System.now()
+                        createdAt = Clock.System.now()
                     )
                 )
             }
@@ -409,7 +409,7 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 composerText.value = ""
-                val createdAt = DateTimeClock.System.now()
+                val createdAt = Clock.System.now()
                 val userMessage = ChatMessage(
                     id = 0,
                     sessionId = sessionId,
@@ -418,7 +418,7 @@ class ChatViewModel(
                     createdAt = createdAt
                 )
                 val userId = repository.appendMessage(sessionId, userMessage)
-                val assistantTime = DateTimeClock.System.now()
+                val assistantTime = Clock.System.now()
                 val assistantMessage = ChatMessage(
                     id = 0,
                     sessionId = sessionId,
@@ -544,7 +544,7 @@ class ChatViewModel(
                     sessionId = sessionId,
                     role = MessageRole.ASSISTANT,
                     content = prompt.assistantPrefill,
-                    createdAt = DateTimeClock.System.now(),
+                    createdAt = Clock.System.now(),
                     thinking = "",
                     isStreaming = true
                 )
