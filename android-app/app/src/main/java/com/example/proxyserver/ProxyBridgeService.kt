@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -25,6 +26,7 @@ class ProxyBridgeService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val notificationManager by lazy { ContextCompat.getSystemService(this, NotificationManager::class.java) }
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     private val bridgeSystem = ProxyBridgeSystem(logListener = { logMessage(it) })
 
@@ -32,6 +34,7 @@ class ProxyBridgeService : Service() {
         super.onCreate()
         createNotificationChannel()
         acquireWakeLock()
+        acquireWifiLock()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -49,6 +52,7 @@ class ProxyBridgeService : Service() {
         super.onDestroy()
         stopBridge()
         releaseWakeLock()
+        releaseWifiLock()
         serviceScope.cancel()
         broadcastStatus(false, getString(R.string.status_stopped))
     }
@@ -145,6 +149,23 @@ class ProxyBridgeService : Service() {
             }
         }
         wakeLock = null
+    }
+
+    private fun acquireWifiLock() {
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
+        wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "ProxyBridge::WifiLock").apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    private fun releaseWifiLock() {
+        wifiLock?.let {
+            if (it.isHeld) {
+                it.release()
+            }
+        }
+        wifiLock = null
     }
 
     private fun formatStatusMessage(): String {

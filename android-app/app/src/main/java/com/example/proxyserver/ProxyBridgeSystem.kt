@@ -325,11 +325,26 @@ class ProxyBridgeSystem(
 
             val response = newChunkedResponse(status, contentType, responseStream)
 
-            headerMessage.headers.forEach { (key, values) ->
-                if (key.equals("content-type", ignoreCase = true)) return@forEach
-                if (key.equals("content-length", ignoreCase = true)) return@forEach
-                if (key.equals("transfer-encoding", ignoreCase = true)) return@forEach
-                values.forEach { value -> response.addHeader(key, value) }
+            val accumulatedHeaders = mutableMapOf<String, String>()
+            headerMessage.headers.forEach { (rawKey, values) ->
+                if (rawKey.equals("content-type", ignoreCase = true)) return@forEach
+                if (rawKey.equals("content-length", ignoreCase = true)) return@forEach
+                if (rawKey.equals("transfer-encoding", ignoreCase = true)) return@forEach
+
+                val key = rawKey
+                values.forEach { rawValue ->
+                    val value = sanitizeHeaderValue(rawValue)
+                    val existing = accumulatedHeaders[key]
+                    accumulatedHeaders[key] = when {
+                        existing.isNullOrEmpty() -> value
+                        value.isEmpty() -> existing
+                        else -> "$existing\r\n$key: $value"
+                    }
+                }
+            }
+
+            accumulatedHeaders.forEach { (key, value) ->
+                response.addHeader(key, value)
             }
 
             response.applyCors()
@@ -461,6 +476,11 @@ class ProxyBridgeSystem(
 
         private fun createErrorResponse(status: Response.IStatus, message: String): Response {
             return newFixedLengthResponse(status, NanoHTTPD.MIME_PLAINTEXT, message).applyCors()
+        }
+
+        private fun sanitizeHeaderValue(value: String?): String {
+            if (value == null) return ""
+            return value.replace("\r", "").replace("\n", "")
         }
 
         private fun generateRequestId(): String = "${System.currentTimeMillis()}_${UUID.randomUUID()}"
