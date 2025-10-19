@@ -10,6 +10,9 @@ import org.json.JSONObject
 import java.io.InputStream
 import java.net.InetSocketAddress
 import kotlin.text.Charsets
+import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
+import java.nio.charset.UnsupportedCharsetException
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -211,14 +214,19 @@ class ProxyBridgeSystem(
                 return ""
             }
 
-            val contentType = contentTypeHeader?.lowercase()?.substringBefore(';')?.trim() ?: ""
+            val contentType = contentTypeHeader?.lowercase(Locale.ROOT)?.substringBefore(';')?.trim() ?: ""
+            val charset = resolveCharset(contentTypeHeader)
 
             return when {
-                contentType.contains("application/json") -> normalizeJsonBody(bodyBytes)
-                contentType.contains("application/x-www-form-urlencoded") -> normalizeFormBody(bodyBytes)
-                contentType.startsWith("text/") || contentType.contains("javascript") ->
-                    bodyBytes.toString(Charsets.UTF_8)
-                else -> bufferString(bodyBytes)
+                isTextualContentType(contentType) -> bodyBytes.toString(charset)
+                else -> {
+                    val textCandidate = runCatching { bodyBytes.toString(charset) }.getOrNull()
+                    if (textCandidate != null && isMostlyPrintable(textCandidate)) {
+                        textCandidate
+                    } else {
+                        bufferString(bodyBytes)
+                    }
+                }
             }
         }
 
@@ -251,51 +259,6 @@ class ProxyBridgeSystem(
             }
         }
 
-        private fun normalizeJsonBody(bodyBytes: ByteArray): String {
-            val bodyText = bodyBytes.toString(Charsets.UTF_8)
-            return try {
-                val trimmed = bodyText.trim()
-                when {
-                    trimmed.startsWith("[") -> JSONArray(trimmed).toString()
-                    trimmed.startsWith("{") -> JSONObject(trimmed).toString()
-                    else -> bodyText
-                }
-            } catch (_: Exception) {
-                bodyText
-            }
-        }
-
-        private fun normalizeFormBody(bodyBytes: ByteArray): String {
-            val bodyText = bodyBytes.toString(Charsets.UTF_8)
-            if (bodyText.isEmpty()) {
-                return ""
-            }
-
-            val formObject = JSONObject()
-            bodyText.split("&").forEach { pair ->
-                if (pair.isEmpty()) return@forEach
-                val parts = pair.split("=", limit = 2)
-                val decodedKey = java.net.URLDecoder.decode(parts[0], "UTF-8")
-                val key = if (decodedKey.endsWith("[]")) decodedKey.dropLast(2) else decodedKey
-                val value = if (parts.size > 1) java.net.URLDecoder.decode(parts[1], "UTF-8") else ""
-                if (formObject.has(key)) {
-                    val existing = formObject.get(key)
-                    when (existing) {
-                        is JSONArray -> existing.put(value)
-                        else -> {
-                            val array = JSONArray()
-                            array.put(existing)
-                            array.put(value)
-                            formObject.put(key, array)
-                        }
-                    }
-                } else {
-                    formObject.put(key, value)
-                }
-            }
-            return formObject.toString()
-        }
-
         private fun bufferString(bodyBytes: ByteArray): String {
             val dataArray = JSONArray()
             bodyBytes.forEach { byte -> dataArray.put(byte.toInt() and 0xFF) }
@@ -303,6 +266,56 @@ class ProxyBridgeSystem(
                 put("type", "Buffer")
                 put("data", dataArray)
             }.toString()
+        }
+
+        private fun resolveCharset(contentTypeHeader: String?): Charset {
+            if (contentTypeHeader.isNullOrBlank()) {
+                return StandardCharsets.UTF_8
+            }
+
+            val charsetToken = contentTypeHeader.split(';')
+                .drop(1)
+                .map { it.trim() }
+                .firstOrNull { it.startsWith("charset=", ignoreCase = true) }
+                ?.substringAfter('=')
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+
+            if (charsetToken.isNullOrEmpty()) {
+                return StandardCharsets.UTF_8
+            }
+
+            return try {
+                Charset.forName(charsetToken)
+            } catch (_: UnsupportedCharsetException) {
+                StandardCharsets.UTF_8
+            } catch (_: IllegalArgumentException) {
+                StandardCharsets.UTF_8
+            }
+        }
+
+        private fun isTextualContentType(contentType: String): Boolean {
+            if (contentType.isEmpty()) {
+                return false
+            }
+
+            return contentType.startsWith("text/") ||
+                contentType.contains("json") ||
+                contentType.contains("xml") ||
+                contentType.contains("javascript") ||
+                contentType.contains("form-urlencoded") ||
+                contentType.contains("plain")
+        }
+
+        private fun isMostlyPrintable(text: String): Boolean {
+            if (text.isEmpty()) {
+                return true
+            }
+
+            val printable = text.count { ch ->
+                ch >= ' ' || ch == '\n' || ch == '\r' || ch == '\t'
+            }
+            return printable * 1.0 / text.length >= 0.9
         }
 
         private fun forwardRequest(proxyRequest: JSONObject) {
