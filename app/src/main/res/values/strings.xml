@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Proxy Server</string>
+    <string name="service_status_running">服务正在运行</string>
+    <string name="service_status_stopped">服务未运行</string>
+    <string name="service_status_starting">服务启动中…</string>
+    <string name="start_service">启动服务</string>
+    <string name="stop_service">停止服务</string>
+    <string name="request_ignore_battery_optimizations">忽略电池优化</string>
+    <string name="battery_optimization_explanation">为确保后台服务器稳定运行，请允许应用忽略电池优化。</string>
+    <string name="server_running_on">HTTP: %1$s\nWebSocket: %2$s</string>
+</resources>
