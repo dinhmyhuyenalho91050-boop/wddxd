@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Proxy Bridge</string>
+    <string name="notification_channel_name">Proxy Bridge</string>
+    <string name="notification_channel_description">Bridge HTTP requests to connected browser via WebSocket.</string>
+    <string name="notification_content_running">Proxy bridge is running</string>
+    <string name="notification_action_stop">Stop</string>
+    <string name="status_running">Proxy active on %1$s:%2$d (HTTP) / %3$d (WS)</string>
+    <string name="status_stopped">Proxy is stopped</string>
+    <string name="button_start">Start server</string>
+    <string name="button_stop">Stop server</string>
+    <string name="error_start_service">Unable to start service: %1$s</string>
+    <string name="error_start_foreground_service_not_allowed">Unable to promote to foreground service. Please keep the app visible and try again.</string>
+    <string name="error_notification_permission_denied">Notification permission is required to keep the proxy running in the foreground.</string>
+</resources>
