@@ -23,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 class ProxyBridgeService : Service() {
 
@@ -32,6 +33,7 @@ class ProxyBridgeService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private lateinit var bridgeSystem: ProxyBridgeSystem
+    private val isStarting = AtomicBoolean(false)
 
     override fun onCreate() {
         super.onCreate()
@@ -89,6 +91,11 @@ class ProxyBridgeService : Service() {
         if (!::bridgeSystem.isInitialized) {
             initializeBridge()
         }
+
+        if (!isStarting.compareAndSet(false, true)) {
+            return
+        }
+
         val system = bridgeSystem
         serviceScope.launch {
             try {
@@ -98,6 +105,8 @@ class ProxyBridgeService : Service() {
                 logMessage("Failed to start bridge: ${ex.message}")
                 broadcastStatus(false, "启动失败: ${ex.message}")
                 stopSelf()
+            } finally {
+                isStarting.set(false)
             }
         }
     }
