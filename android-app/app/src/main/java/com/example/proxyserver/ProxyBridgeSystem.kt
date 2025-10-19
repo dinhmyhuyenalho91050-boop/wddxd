@@ -10,6 +10,7 @@ import org.json.JSONObject
 import java.io.InputStream
 import java.net.InetSocketAddress
 import kotlin.text.Charsets
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -312,7 +313,7 @@ class ProxyBridgeSystem(
             val contentTypeValues = headerMessage.headers.entries
                 .firstOrNull { it.key.equals("content-type", ignoreCase = true) }
                 ?.value
-            val contentType = contentTypeValues?.firstOrNull() ?: NanoHTTPD.MIME_PLAINTEXT
+            val contentType = normalizeContentType(contentTypeValues?.firstOrNull())
             val isEventStream = contentType.contains("text/event-stream", ignoreCase = true)
 
             val responseStream = QueueBackedInputStream(
@@ -435,6 +436,26 @@ class ProxyBridgeSystem(
             return Response.Status.lookup(code) ?: object : Response.IStatus {
                 override fun getRequestStatus(): Int = code
                 override fun getDescription(): String = "HTTP $code"
+            }
+        }
+
+        private fun normalizeContentType(contentType: String?): String {
+            val resolved = contentType?.takeIf { it.isNotBlank() } ?: NanoHTTPD.MIME_PLAINTEXT
+            val lower = resolved.lowercase(Locale.ROOT)
+            if (lower.contains("charset=")) {
+                return resolved
+            }
+
+            val needsUtf8 = lower.startsWith("text/") ||
+                lower.contains("json") ||
+                lower.contains("javascript") ||
+                lower.contains("xml") ||
+                lower.contains("form-urlencoded")
+
+            return if (needsUtf8) {
+                "$resolved; charset=utf-8"
+            } else {
+                resolved
             }
         }
 
