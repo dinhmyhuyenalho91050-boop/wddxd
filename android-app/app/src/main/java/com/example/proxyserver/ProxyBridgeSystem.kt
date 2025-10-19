@@ -16,7 +16,7 @@ import java.io.InputStream
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
 import java.net.InetSocketAddress
-import java.nio.charset.Charset
+import kotlin.text.Charsets
 import java.util.UUID
 
 class ProxyBridgeSystem(
@@ -206,15 +206,14 @@ class ProxyBridgeSystem(
             response.applyCors()
 
             scope.launch {
-                val keepAlivePayload = ": keepalive\n\n".toByteArray(Charset.forName("UTF-8"))
+                val keepAlivePayload = ": keepalive\n\n".toByteArray(Charsets.UTF_8)
                 val isEventStream = contentType.contains("text/event-stream", ignoreCase = true)
                 try {
                     while (true) {
                         try {
                             when (val message = messageQueue.dequeue(config.defaultTimeoutMs)) {
                                 is ProxyMessage.Chunk -> {
-                                    val bytes = message.data.toByteArray(Charset.forName("UTF-8"))
-                                    outputStream.write(bytes)
+                                    outputStream.write(message.data)
                                     outputStream.flush()
                                 }
 

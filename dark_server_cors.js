@@ -271,13 +271,14 @@ class RequestHandler {
     while (true) {
       try {
         const dataMessage = await messageQueue.dequeue();
-        
+
         if (dataMessage.type === 'STREAM_END') {
           break;
         }
-        
-        if (dataMessage.data) {
-          res.write(dataMessage.data);
+
+        const chunk = this._decodeChunkPayload(dataMessage);
+        if (chunk && chunk.length) {
+          res.write(chunk);
         }
       } catch (error) {
         if (error.message === 'Queue timeout') {
@@ -304,7 +305,37 @@ class RequestHandler {
       this._sendErrorResponse(res, 500, `代理错误: ${error.message}`);
     }
   }
-  
+
+  _decodeChunkPayload(message) {
+    const base64Data = message.data_base64;
+    if (base64Data) {
+      return Buffer.from(base64Data, 'base64');
+    }
+
+    const dataValue = message.data;
+    if (dataValue === undefined || dataValue === null) {
+      return Buffer.alloc(0);
+    }
+
+    const encoding = message.encoding || '';
+    const isBase64 = Boolean(message.is_base64 || message.binary || encoding.toLowerCase() === 'base64');
+
+    if (isBase64) {
+      try {
+        return Buffer.from(String(dataValue), 'base64');
+      } catch (error) {
+        this.logger.warn('Base64数据解码失败，忽略该数据块');
+        return Buffer.alloc(0);
+      }
+    }
+
+    if (typeof dataValue === 'string' || Buffer.isBuffer(dataValue)) {
+      return Buffer.from(dataValue);
+    }
+
+    return Buffer.from(JSON.stringify(dataValue));
+  }
+
   _sendErrorResponse(res, status, message) {
     res.status(status).send(message);
   }

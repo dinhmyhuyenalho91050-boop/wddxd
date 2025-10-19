@@ -10,7 +10,7 @@ sealed class ProxyMessage {
         val headers: Map<String, String>
     ) : ProxyMessage()
 
-    data class Chunk(val data: String) : ProxyMessage()
+    data class Chunk(val data: ByteArray) : ProxyMessage()
 
     data class Error(val status: Int?, val message: String) : ProxyMessage()
 

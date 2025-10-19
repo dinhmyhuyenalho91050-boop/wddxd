@@ -1,9 +1,11 @@
 package com.example.proxyserver
 
+import android.util.Base64
 import org.java_websocket.WebSocket
 import org.json.JSONObject
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.text.Charsets
 
 class ConnectionRegistry(private val logger: LoggingService) {
 
@@ -67,8 +69,8 @@ class ConnectionRegistry(private val logger: LoggingService) {
                 }
 
                 "chunk" -> {
-                    val data = parsed.optString("data", "")
-                    queue.enqueue(ProxyMessage.Chunk(data))
+                    val chunkBytes = decodeChunkPayload(parsed)
+                    queue.enqueue(ProxyMessage.Chunk(chunkBytes))
                 }
 
                 "error" -> {
@@ -83,6 +85,39 @@ class ConnectionRegistry(private val logger: LoggingService) {
             }
         } catch (ex: Exception) {
             logger.error("解析WebSocket消息失败", ex)
+        }
+    }
+
+    private fun decodeChunkPayload(parsed: JSONObject): ByteArray {
+        // 优先使用二进制安全的字段
+        val base64Data = parsed.optString("data_base64", null)
+        if (!base64Data.isNullOrEmpty()) {
+            return decodeBase64(base64Data)
+        }
+
+        val dataValue = parsed.opt("data")
+        if (dataValue == null || dataValue == JSONObject.NULL) {
+            return ByteArray(0)
+        }
+
+        val encoding = parsed.optString("encoding")
+        val isBase64 = parsed.optBoolean("is_base64", false) ||
+            parsed.optBoolean("binary", false) ||
+            encoding.equals("base64", ignoreCase = true)
+
+        return when {
+            isBase64 -> decodeBase64(dataValue.toString())
+            dataValue is String -> dataValue.toByteArray(Charsets.UTF_8)
+            else -> dataValue.toString().toByteArray(Charsets.UTF_8)
+        }
+    }
+
+    private fun decodeBase64(data: String): ByteArray {
+        return try {
+            Base64.decode(data, Base64.DEFAULT)
+        } catch (_: IllegalArgumentException) {
+            logger.warn("Base64数据解码失败，返回空字节数组")
+            ByteArray(0)
         }
     }
 }
