@@ -179,7 +179,15 @@ class MainActivity : AppCompatActivity() {
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                     data = Uri.parse("package:$packageName")
                 }
-                startActivity(intent)
+                try {
+                    startActivity(intent)
+                } catch (activityNotFound: Exception) {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.error_start_service, activityNotFound.message ?: ""),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }
