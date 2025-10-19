@@ -1,10 +1,5 @@
 package com.example.proxyserver
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.Method
 import org.java_websocket.handshake.ClientHandshake
@@ -13,11 +8,10 @@ import org.java_websocket.WebSocket
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStream
-import java.io.PipedInputStream
-import java.io.PipedOutputStream
 import java.net.InetSocketAddress
 import kotlin.text.Charsets
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 class ProxyBridgeSystem(
     private val config: Config = Config(),
@@ -33,8 +27,6 @@ class ProxyBridgeSystem(
 
     private val logger = LoggingService("ProxyServer", logListener)
     private val connectionRegistry = ConnectionRegistry(logger)
-    private var scope = createScope()
-
     @Volatile
     private var httpServer: ProxyHttpServer? = null
 
@@ -72,8 +64,6 @@ class ProxyBridgeSystem(
         httpServer = null
         webSocketServer = null
         connectionRegistry.clearQueues()
-        scope.cancel()
-        scope = createScope()
     }
 
     fun hasActiveConnections(): Boolean = connectionRegistry.hasActiveConnections()
@@ -83,8 +73,6 @@ class ProxyBridgeSystem(
     } else {
         "stopped"
     }
-
-    private fun createScope() = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private fun NanoHTTPD.safeStop() {
         try {
@@ -118,20 +106,27 @@ class ProxyBridgeSystem(
 
             val requestId = generateRequestId()
             val messageQueue = connectionRegistry.createMessageQueue(requestId)
+            val queueReleased = AtomicBoolean(false)
+            val releaseQueue = {
+                if (queueReleased.compareAndSet(false, true)) {
+                    connectionRegistry.removeMessageQueue(requestId)
+                }
+            }
 
             return try {
                 val proxyRequest = buildProxyRequest(session, requestId)
                 forwardRequest(proxyRequest)
-                handleResponse(messageQueue)
+                handleResponse(messageQueue, releaseQueue)
             } catch (timeout: QueueTimeoutException) {
+                releaseQueue()
                 createErrorResponse(Response.Status.REQUEST_TIMEOUT, "请求超时")
             } catch (closed: QueueClosedException) {
+                releaseQueue()
                 createErrorResponse(Response.Status.INTERNAL_ERROR, "连接已关闭")
             } catch (ex: Exception) {
+                releaseQueue()
                 logger.error("请求处理错误: ${ex.message}", ex)
                 createErrorResponse(Response.Status.INTERNAL_ERROR, "代理错误: ${ex.message}")
-            } finally {
-                connectionRegistry.removeMessageQueue(requestId)
             }
         }
 
@@ -285,19 +280,24 @@ class ProxyBridgeSystem(
             connection.send(proxyRequest.toString())
         }
 
-        private fun handleResponse(messageQueue: MessageQueue): Response {
+        private fun handleResponse(
+            messageQueue: MessageQueue,
+            releaseQueue: () -> Unit
+        ): Response {
             when (val headerMessage = messageQueue.dequeue(config.defaultTimeoutMs)) {
                 is ProxyMessage.Error -> {
                     val statusCode = headerMessage.status ?: 500
                     val status = lookupStatus(statusCode)
+                    releaseQueue()
                     return createErrorResponse(status, headerMessage.message)
                 }
 
                 is ProxyMessage.ResponseHeaders -> {
-                    return streamResponse(messageQueue, headerMessage)
+                    return streamResponse(messageQueue, headerMessage, releaseQueue)
                 }
 
                 else -> {
+                    releaseQueue()
                     return createErrorResponse(Response.Status.INTERNAL_ERROR, "无效的响应类型")
                 }
             }
@@ -305,67 +305,130 @@ class ProxyBridgeSystem(
 
         private fun streamResponse(
             messageQueue: MessageQueue,
-            headerMessage: ProxyMessage.ResponseHeaders
+            headerMessage: ProxyMessage.ResponseHeaders,
+            releaseQueue: () -> Unit
         ): Response {
-            val outputStream = PipedOutputStream()
-            val inputStream: InputStream = PipedInputStream(outputStream)
             val status = lookupStatus(headerMessage.status)
             val contentTypeValues = headerMessage.headers.entries
                 .firstOrNull { it.key.equals("content-type", ignoreCase = true) }
                 ?.value
             val contentType = contentTypeValues?.firstOrNull() ?: NanoHTTPD.MIME_PLAINTEXT
-            val response = newChunkedResponse(status, contentType, inputStream)
+            val isEventStream = contentType.contains("text/event-stream", ignoreCase = true)
+
+            val responseStream = QueueBackedInputStream(
+                messageQueue = messageQueue,
+                timeoutMs = config.defaultTimeoutMs,
+                keepAliveEnabled = isEventStream,
+                onStreamComplete = releaseQueue
+            )
+
+            val response = newChunkedResponse(status, contentType, responseStream)
 
             headerMessage.headers.forEach { (key, values) ->
                 if (key.equals("content-type", ignoreCase = true)) return@forEach
+                if (key.equals("content-length", ignoreCase = true)) return@forEach
+                if (key.equals("transfer-encoding", ignoreCase = true)) return@forEach
                 values.forEach { value -> response.addHeader(key, value) }
             }
 
             response.applyCors()
 
-            scope.launch {
-                val keepAlivePayload = ": keepalive\n\n".toByteArray(Charsets.UTF_8)
-                val isEventStream = contentType.contains("text/event-stream", ignoreCase = true)
-                try {
-                    while (true) {
-                        try {
-                            when (val message = messageQueue.dequeue(config.defaultTimeoutMs)) {
-                                is ProxyMessage.Chunk -> {
-                                    outputStream.write(message.data)
-                                    outputStream.flush()
-                                }
+            return response
+        }
 
-                                ProxyMessage.StreamEnd -> break
+        private inner class QueueBackedInputStream(
+            private val messageQueue: MessageQueue,
+            private val timeoutMs: Long,
+            private val keepAliveEnabled: Boolean,
+            private val onStreamComplete: () -> Unit
+        ) : InputStream() {
+            private var buffer = ByteArray(0)
+            private var position = 0
+            private var closed = false
+            private val keepAlivePayload = ": keepalive\n\n".toByteArray(Charsets.UTF_8)
+            private var completionNotified = false
 
-                                is ProxyMessage.Error -> {
-                                    logger.warn("流式响应收到错误: ${message.message}")
-                                    break
-                                }
+            override fun read(): Int {
+                val data = ensureBuffer() ?: return -1
+                return data[position++].toInt() and 0xFF
+            }
 
-                                else -> {
-                                    // ignore
-                                }
-                            }
-                        } catch (timeout: QueueTimeoutException) {
-                            if (isEventStream) {
-                                outputStream.write(keepAlivePayload)
-                                outputStream.flush()
-                            } else {
-                                break
-                            }
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                val data = ensureBuffer() ?: return -1
+                val bytesAvailable = data.size - position
+                val bytesToCopy = minOf(len, bytesAvailable)
+                System.arraycopy(data, position, b, off, bytesToCopy)
+                position += bytesToCopy
+                return bytesToCopy
+            }
+
+            private fun ensureBuffer(): ByteArray? {
+                if (closed) {
+                    return null
+                }
+
+                if (position < buffer.size) {
+                    return buffer
+                }
+
+                while (true) {
+                    val message = try {
+                        messageQueue.dequeue(timeoutMs)
+                    } catch (_: QueueClosedException) {
+                        closeStream()
+                        return null
+                    } catch (_: QueueTimeoutException) {
+                        if (keepAliveEnabled) {
+                            buffer = keepAlivePayload
+                            position = 0
+                            return buffer
                         }
+                        closeStream()
+                        return null
                     }
-                } catch (_: Exception) {
-                    // Ignore streaming exceptions
-                } finally {
-                    try {
-                        outputStream.close()
-                    } catch (_: Exception) {
+
+                    when (message) {
+                        is ProxyMessage.Chunk -> {
+                            if (message.data.isEmpty()) {
+                                continue
+                            }
+                            buffer = message.data
+                            position = 0
+                            return buffer
+                        }
+
+                        ProxyMessage.StreamEnd -> {
+                            closeStream()
+                            return null
+                        }
+
+                        is ProxyMessage.Error -> {
+                            logger.warn("流式响应收到错误: ${message.message}")
+                            closeStream()
+                            return null
+                        }
+
+                        else -> {
+                            // Ignore unexpected events
+                        }
                     }
                 }
             }
 
-            return response
+            private fun closeStream() {
+                closed = true
+                buffer = ByteArray(0)
+                position = 0
+                if (!completionNotified) {
+                    completionNotified = true
+                    onStreamComplete()
+                }
+            }
+
+            override fun close() {
+                closeStream()
+                super.close()
+            }
         }
 
         private fun lookupStatus(code: Int): Response.IStatus {
