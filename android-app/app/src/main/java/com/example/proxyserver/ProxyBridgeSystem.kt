@@ -96,6 +96,11 @@ class ProxyBridgeSystem(
         }
     }
 
+    private data class ProxyRequestBundle(
+        val payload: JSONObject,
+        val rawBody: ByteArray
+    )
+
     private inner class ProxyHttpServer(hostname: String, port: Int) : NanoHTTPD(hostname, port) {
 
         override fun serve(session: IHTTPSession): Response {
@@ -135,11 +140,6 @@ class ProxyBridgeSystem(
                 createErrorResponse(Response.Status.INTERNAL_ERROR, "代理错误: ${ex.message}")
             }
         }
-
-        private data class ProxyRequestBundle(
-            val payload: JSONObject,
-            val rawBody: ByteArray
-        )
 
         private fun buildProxyRequest(session: IHTTPSession, requestId: String): ProxyRequestBundle {
             val files = mutableMapOf<String, String>()
