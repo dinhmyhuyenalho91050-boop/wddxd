@@ -57,6 +57,12 @@ class ProxyBridgeService : Service() {
         broadcastStatus(false, getString(R.string.status_stopped))
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        val serviceIntent = Intent(applicationContext, ProxyBridgeService::class.java)
+        ContextCompat.startForegroundService(applicationContext, serviceIntent)
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun startBridge() {
