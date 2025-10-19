@@ -125,6 +125,10 @@ class ProxyBridgeSystem(
             } catch (closed: QueueClosedException) {
                 releaseQueue()
                 createErrorResponse(Response.Status.INTERNAL_ERROR, "连接已关闭")
+            } catch (recoverError: RequestBodyRecoveryException) {
+                releaseQueue()
+                logger.error("请求体恢复失败: ${recoverError.message}", recoverError)
+                createErrorResponse(Response.Status.BAD_REQUEST, "请求体恢复失败: ${recoverError.message}")
             } catch (ex: Exception) {
                 releaseQueue()
                 logger.error("请求处理错误: ${ex.message}", ex)
@@ -139,7 +143,7 @@ class ProxyBridgeSystem(
                 val rawBody = files["postData"] ?: ""
                 readBodyBytes(rawBody)
             } catch (ex: Exception) {
-                logger.warn("解析请求体失败: ${ex.message}")
+                logger.warn("解析请求体失败: ${ex.message}", ex)
                 recoverRequestBody(session)
             }
 
@@ -223,33 +227,43 @@ class ProxyBridgeSystem(
         }
 
         private fun recoverRequestBody(session: IHTTPSession): ByteArray {
-            val inputStream = session.inputStream ?: return ByteArray(0)
-            val contentLength = session.headers["content-length"]?.toLongOrNull()
+            val inputStream = session.inputStream
+                ?: throw RequestBodyRecoveryException("请求体流已关闭，无法恢复内容")
+            val contentLengthHeader = session.headers["content-length"]
+            val contentLength = contentLengthHeader?.toLongOrNull()
+                ?: throw RequestBodyRecoveryException("缺少 content-length 头，无法安全恢复请求体")
+
             val buffer = java.io.ByteArrayOutputStream()
             val tempBuffer = ByteArray(DEFAULT_BUFFER_SIZE)
 
-            return try {
-                if (contentLength != null) {
-                    var remaining = contentLength
-                    while (remaining > 0) {
-                        val bytesToRead = minOf(tempBuffer.size.toLong(), remaining).toInt()
-                        val read = inputStream.read(tempBuffer, 0, bytesToRead)
-                        if (read == -1) break
-                        buffer.write(tempBuffer, 0, read)
-                        remaining -= read
+            try {
+                var totalRead = 0L
+                while (totalRead < contentLength) {
+                    val bytesToRead = minOf(tempBuffer.size.toLong(), contentLength - totalRead).toInt()
+                    val read = inputStream.read(tempBuffer, 0, bytesToRead)
+                    if (read == -1) {
+                        break
                     }
-                } else {
-                    while (true) {
-                        val read = inputStream.read(tempBuffer)
-                        if (read == -1) break
-                        buffer.write(tempBuffer, 0, read)
-                    }
+                    buffer.write(tempBuffer, 0, read)
+                    totalRead += read
                 }
-                buffer.toByteArray()
-            } catch (_: Exception) {
-                ByteArray(0)
+
+                if (totalRead != contentLength) {
+                    throw RequestBodyRecoveryException(
+                        "恢复的请求体长度(${totalRead})与声明的长度(${contentLength})不一致"
+                    )
+                }
+
+                return buffer.toByteArray()
+            } catch (ex: Exception) {
+                if (ex is RequestBodyRecoveryException) {
+                    throw ex
+                }
+                throw RequestBodyRecoveryException("恢复请求体时发生异常: ${ex.message}", ex)
             }
         }
+
+        private class RequestBodyRecoveryException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
         private fun normalizeJsonBody(bodyBytes: ByteArray): String {
             val bodyText = bodyBytes.toString(Charsets.UTF_8)
