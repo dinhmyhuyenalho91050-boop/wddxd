@@ -222,29 +222,34 @@ class ProxyBridgeSystem(
             val charset = resolveCharset(contentTypeHeader)
 
             if (isJsonContentType(resolvedContentType)) {
-                decodeLossless(bodyBytes, charset)?.let { decoded ->
-                    canonicalizeJson(decoded)?.let { return it }
+                decodeText(bodyBytes, charset)?.let { return it }
+                if (charset != StandardCharsets.UTF_8) {
+                    decodeText(bodyBytes, StandardCharsets.UTF_8)?.let { return it }
+                }
+                return bufferString(bodyBytes)
+            }
+
+            if (isFormUrlEncoded(resolvedContentType)) {
+                decodeText(bodyBytes, charset)?.let { decoded ->
+                    stringifyUrlEncodedBody(decoded, charset)?.let { return it }
                     return decoded
                 }
                 if (charset != StandardCharsets.UTF_8) {
-                    decodeLossless(bodyBytes, StandardCharsets.UTF_8)?.let { decoded ->
-                        canonicalizeJson(decoded)?.let { return it }
+                    decodeText(bodyBytes, StandardCharsets.UTF_8)?.let { decoded ->
+                        stringifyUrlEncodedBody(decoded, StandardCharsets.UTF_8)?.let { return it }
                         return decoded
                     }
                 }
                 return bufferString(bodyBytes)
             }
 
-            if (isFormUrlEncoded(resolvedContentType)) {
-                decodeLossless(bodyBytes, charset)?.let { decoded ->
-                    stringifyUrlEncodedBody(decoded, charset)?.let { return it }
-                    return decoded
-                }
+            if (resolvedContentType.startsWith("text/") ||
+                resolvedContentType.contains("javascript") ||
+                resolvedContentType.contains("xml")
+            ) {
+                decodeText(bodyBytes, charset)?.let { return it }
                 if (charset != StandardCharsets.UTF_8) {
-                    decodeLossless(bodyBytes, StandardCharsets.UTF_8)?.let { decoded ->
-                        stringifyUrlEncodedBody(decoded, StandardCharsets.UTF_8)?.let { return it }
-                        return decoded
-                    }
+                    decodeText(bodyBytes, StandardCharsets.UTF_8)?.let { return it }
                 }
                 return bufferString(bodyBytes)
             }
@@ -317,11 +322,15 @@ class ProxyBridgeSystem(
             }
         }
 
-        private fun decodeLossless(bodyBytes: ByteArray, charset: Charset): String? {
+        private fun decodeText(bodyBytes: ByteArray, charset: Charset): String? {
             return try {
                 val decoded = String(bodyBytes, charset)
                 val roundTripped = decoded.toByteArray(charset)
-                if (roundTripped.contentEquals(bodyBytes)) decoded else null
+                if (roundTripped.contentEquals(bodyBytes)) {
+                    decoded
+                } else {
+                    null
+                }
             } catch (_: Exception) {
                 null
             }
@@ -339,23 +348,6 @@ class ProxyBridgeSystem(
 
         private fun isFormUrlEncoded(contentType: String): Boolean {
             return contentType == "application/x-www-form-urlencoded"
-        }
-
-        private fun canonicalizeJson(text: String): String? {
-            val trimmed = text.trim()
-            if (trimmed.isEmpty()) {
-                return ""
-            }
-
-            return try {
-                when {
-                    trimmed.startsWith("{") -> JSONObject(trimmed).toString()
-                    trimmed.startsWith("[") -> JSONArray(trimmed).toString()
-                    else -> null
-                }
-            } catch (_: Exception) {
-                null
-            }
         }
 
         private fun stringifyUrlEncodedBody(body: String, charset: Charset): String? {
