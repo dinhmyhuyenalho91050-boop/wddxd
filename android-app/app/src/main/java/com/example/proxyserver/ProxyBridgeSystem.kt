@@ -13,6 +13,7 @@ import kotlin.text.Charsets
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.io.DEFAULT_BUFFER_SIZE
 
 class ProxyBridgeSystem(
     private val config: Config = Config(),
@@ -139,7 +140,7 @@ class ProxyBridgeSystem(
                 readBodyBytes(rawBody)
             } catch (ex: Exception) {
                 logger.warn("解析请求体失败: ${ex.message}")
-                ByteArray(0)
+                recoverRequestBody(session)
             }
 
             val headers = JSONObject()
@@ -218,6 +219,35 @@ class ProxyBridgeSystem(
                 contentType.startsWith("text/") || contentType.contains("javascript") ->
                     bodyBytes.toString(Charsets.UTF_8)
                 else -> bufferString(bodyBytes)
+            }
+        }
+
+        private fun recoverRequestBody(session: IHTTPSession): ByteArray {
+            val inputStream = session.inputStream ?: return ByteArray(0)
+            val contentLength = session.headers["content-length"]?.toLongOrNull()
+            val buffer = java.io.ByteArrayOutputStream()
+            val tempBuffer = ByteArray(DEFAULT_BUFFER_SIZE)
+
+            return try {
+                if (contentLength != null) {
+                    var remaining = contentLength
+                    while (remaining > 0) {
+                        val bytesToRead = minOf(tempBuffer.size.toLong(), remaining).toInt()
+                        val read = inputStream.read(tempBuffer, 0, bytesToRead)
+                        if (read == -1) break
+                        buffer.write(tempBuffer, 0, read)
+                        remaining -= read
+                    }
+                } else {
+                    while (true) {
+                        val read = inputStream.read(tempBuffer)
+                        if (read == -1) break
+                        buffer.write(tempBuffer, 0, read)
+                    }
+                }
+                buffer.toByteArray()
+            } catch (_: Exception) {
+                ByteArray(0)
             }
         }
 
