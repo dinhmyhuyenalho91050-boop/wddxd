@@ -149,22 +149,26 @@ class ConnectionRegistry extends EventEmitter {
     }
   }
   
-  _routeMessage(message, queue) {
-    const { event_type } = message;
-    
-    switch (event_type) {
-      case 'response_headers':
-      case 'chunk':
-      case 'error':
-        queue.enqueue(message);
-        break;
-      case 'stream_close':
-        queue.enqueue({ type: 'STREAM_END' });
-        break;
-      default:
-        this.logger.warn(`未知的事件类型: ${event_type}`);
+    _routeMessage(message, queue) {
+      const { event_type } = message;
+
+      switch (event_type) {
+        case 'response_headers':
+          queue.enqueue(message);
+          break;
+        case 'chunk':
+          queue.enqueue(this._normalizeChunkMessage(message));
+          break;
+        case 'error':
+          queue.enqueue(message);
+          break;
+        case 'stream_close':
+          queue.enqueue({ type: 'STREAM_END' });
+          break;
+        default:
+          this.logger.warn(`未知的事件类型: ${event_type}`);
+      }
     }
-  }
   
   hasActiveConnections() {
     return this.connections.size > 0;
@@ -271,11 +275,11 @@ class RequestHandler {
     while (true) {
       try {
         const dataMessage = await messageQueue.dequeue();
-        
+
         if (dataMessage.type === 'STREAM_END') {
           break;
         }
-        
+
         if (dataMessage.data) {
           res.write(dataMessage.data);
         }
@@ -304,7 +308,43 @@ class RequestHandler {
       this._sendErrorResponse(res, 500, `代理错误: ${error.message}`);
     }
   }
-  
+
+  _normalizeChunkMessage(message) {
+    const normalized = { ...message };
+
+    const base64Data = message.data_base64;
+    if (base64Data) {
+      try {
+        normalized.data = Buffer.from(base64Data, 'base64');
+      } catch (error) {
+        this.logger.warn('Base64数据解码失败，回退到原始数据');
+        normalized.data = '';
+      }
+      return normalized;
+    }
+
+    const dataValue = message.data;
+    if (dataValue === undefined || dataValue === null) {
+      normalized.data = '';
+      return normalized;
+    }
+
+    const encoding = message.encoding || '';
+    const isBase64 = Boolean(message.is_base64 || message.binary || encoding.toLowerCase() === 'base64');
+
+    if (isBase64) {
+      try {
+        normalized.data = Buffer.from(String(dataValue), 'base64');
+      } catch (error) {
+        this.logger.warn('Base64数据解码失败，使用原始数据字符串');
+        normalized.data = dataValue;
+      }
+      return normalized;
+    }
+
+    return normalized;
+  }
+
   _sendErrorResponse(res, status, message) {
     res.status(status).send(message);
   }
