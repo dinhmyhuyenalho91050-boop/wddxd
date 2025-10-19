@@ -5,8 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
@@ -27,6 +29,19 @@ class ProxyBridgeService : Service() {
     private val notificationManager by lazy { ContextCompat.getSystemService(this, NotificationManager::class.java) }
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private val statusRequestReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_REQUEST_STATUS) {
+                val running = bridgeSystem.isRunning
+                val message = if (running) {
+                    formatStatusMessage()
+                } else {
+                    getString(R.string.status_stopped)
+                }
+                broadcastStatus(running, message)
+            }
+        }
+    }
 
     private val bridgeSystem = ProxyBridgeSystem(logListener = { logMessage(it) })
 
@@ -35,6 +50,10 @@ class ProxyBridgeService : Service() {
         createNotificationChannel()
         acquireWakeLock()
         acquireWifiLock()
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+            statusRequestReceiver,
+            IntentFilter(ACTION_REQUEST_STATUS)
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -55,6 +74,7 @@ class ProxyBridgeService : Service() {
         releaseWifiLock()
         serviceScope.cancel()
         broadcastStatus(false, getString(R.string.status_stopped))
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(statusRequestReceiver)
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -182,6 +202,7 @@ class ProxyBridgeService : Service() {
     companion object {
         const val ACTION_STATUS = "com.example.proxyserver.ACTION_STATUS"
         const val ACTION_LOG_UPDATE = "com.example.proxyserver.ACTION_LOG_UPDATE"
+        const val ACTION_REQUEST_STATUS = "com.example.proxyserver.ACTION_REQUEST_STATUS"
         const val EXTRA_RUNNING = "extra_running"
         const val EXTRA_MESSAGE = "extra_message"
         const val EXTRA_LOG = "extra_log"
