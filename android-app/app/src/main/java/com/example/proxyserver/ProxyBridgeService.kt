@@ -27,7 +27,6 @@ class ProxyBridgeService : Service() {
     private val notificationManager by lazy { ContextCompat.getSystemService(this, NotificationManager::class.java) }
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
-    private var trafficMonitor: ProxyTrafficMonitor = ProxyTrafficMonitor.noOp()
     private lateinit var bridgeSystem: ProxyBridgeSystem
 
     override fun onCreate() {
@@ -187,12 +186,8 @@ class ProxyBridgeService : Service() {
 
     private fun initializeBridge() {
         if (::bridgeSystem.isInitialized) return
-        val outputDir = (getExternalFilesDir(null) ?: filesDir).let { java.io.File(it, "traffic-monitor") }
-        trafficMonitor = JsonLinesTrafficMonitor(outputDir)
-        logMessage("Traffic monitor writing to: ${outputDir.absolutePath}")
         bridgeSystem = ProxyBridgeSystem(
-            logListener = { logMessage(it) },
-            trafficMonitor = trafficMonitor
+            logListener = { logMessage(it) }
         )
     }
 

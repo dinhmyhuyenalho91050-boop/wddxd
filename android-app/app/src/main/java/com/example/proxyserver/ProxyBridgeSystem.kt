@@ -20,8 +20,7 @@ import kotlin.io.DEFAULT_BUFFER_SIZE
 
 class ProxyBridgeSystem(
     private val config: Config = Config(),
-    logListener: ((String) -> Unit)? = null,
-    private val trafficMonitor: ProxyTrafficMonitor = ProxyTrafficMonitor.noOp()
+    logListener: ((String) -> Unit)? = null
 ) {
 
     data class Config(
@@ -32,7 +31,7 @@ class ProxyBridgeSystem(
     )
 
     private val logger = LoggingService("ProxyServer", logListener)
-    private val connectionRegistry = ConnectionRegistry(logger, trafficMonitor)
+    private val connectionRegistry = ConnectionRegistry(logger)
     @Volatile
     private var httpServer: ProxyHttpServer? = null
 
@@ -96,11 +95,6 @@ class ProxyBridgeSystem(
         }
     }
 
-    private data class ProxyRequestBundle(
-        val payload: JSONObject,
-        val rawBody: ByteArray
-    )
-
     private inner class ProxyHttpServer(hostname: String, port: Int) : NanoHTTPD(hostname, port) {
 
         override fun serve(session: IHTTPSession): Response {
@@ -141,7 +135,7 @@ class ProxyBridgeSystem(
             }
         }
 
-        private fun buildProxyRequest(session: IHTTPSession, requestId: String): ProxyRequestBundle {
+        private fun buildProxyRequest(session: IHTTPSession, requestId: String): JSONObject {
             val bodyBytes = captureRequestBody(session)
 
             val headers = JSONObject()
@@ -180,7 +174,7 @@ class ProxyBridgeSystem(
                 }
             }
 
-            val payload = JSONObject().apply {
+            return JSONObject().apply {
                 put("path", session.uri)
                 put("method", session.method.name)
                 put("headers", headers)
@@ -188,7 +182,6 @@ class ProxyBridgeSystem(
                 put("body", bodyString)
                 put("request_id", requestId)
             }
-            return ProxyRequestBundle(payload, bodyBytes)
         }
 
         private fun normalizeRequestBody(bodyBytes: ByteArray, contentTypeHeader: String?): String {
@@ -395,12 +388,10 @@ class ProxyBridgeSystem(
             }
         }
 
-        private fun forwardRequest(proxyRequest: ProxyRequestBundle) {
+        private fun forwardRequest(proxyRequest: JSONObject) {
             val connection = connectionRegistry.getFirstConnection()
                 ?: throw IllegalStateException("没有可用的浏览器连接")
-            val requestId = proxyRequest.payload.optString("request_id")
-            trafficMonitor.onHttpRequestForwarded(requestId, proxyRequest.payload, proxyRequest.rawBody)
-            connection.send(proxyRequest.payload.toString())
+            connection.send(proxyRequest.toString())
         }
 
         private fun handleResponse(

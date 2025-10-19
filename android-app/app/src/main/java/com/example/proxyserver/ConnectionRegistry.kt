@@ -10,7 +10,6 @@ import kotlin.text.Charsets
 
 class ConnectionRegistry(
     private val logger: LoggingService,
-    private val trafficMonitor: ProxyTrafficMonitor = ProxyTrafficMonitor.noOp()
 ) {
 
     private val connections = Collections.synchronizedSet(mutableSetOf<WebSocket>())
@@ -50,7 +49,6 @@ class ConnectionRegistry(
         try {
             val parsed = JSONObject(messageData)
             val requestId = parsed.optString("request_id")
-            trafficMonitor.onIncomingWebSocketMessage(requestId.takeIf { it.isNotEmpty() }, messageData, parsed)
             if (requestId.isEmpty()) {
                 logger.warn("收到无效消息：缺少request_id")
                 return
@@ -86,14 +84,12 @@ class ConnectionRegistry(
                     val finalizedHeaders = headers.mapValues { it.value.toList() }
                     val status = parsed.optInt("status", 200)
                     val message = ProxyMessage.ResponseHeaders(status, finalizedHeaders)
-                    trafficMonitor.onProxyMessageQueued(requestId, message)
                     queue.enqueue(message)
                 }
 
                 "chunk" -> {
                     val chunkBytes = decodeChunkPayload(parsed)
                     val message = ProxyMessage.Chunk(chunkBytes)
-                    trafficMonitor.onProxyMessageQueued(requestId, message)
                     queue.enqueue(message)
                 }
 
@@ -101,12 +97,10 @@ class ConnectionRegistry(
                     val status = if (parsed.has("status")) parsed.optInt("status") else null
                     val message = parsed.optString("message", "Unknown error")
                     val proxyMessage = ProxyMessage.Error(status, message)
-                    trafficMonitor.onProxyMessageQueued(requestId, proxyMessage)
                     queue.enqueue(proxyMessage)
                 }
 
                 "stream_close" -> {
-                    trafficMonitor.onProxyMessageQueued(requestId, ProxyMessage.StreamEnd)
                     queue.enqueue(ProxyMessage.StreamEnd)
                 }
 
