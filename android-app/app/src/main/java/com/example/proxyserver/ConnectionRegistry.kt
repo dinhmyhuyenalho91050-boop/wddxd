@@ -2,6 +2,7 @@ package com.example.proxyserver
 
 import android.util.Base64
 import org.java_websocket.WebSocket
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
@@ -60,12 +61,27 @@ class ConnectionRegistry(private val logger: LoggingService) {
             when (parsed.optString("event_type")) {
                 "response_headers" -> {
                     val headersJson = parsed.optJSONObject("headers")
-                    val headers = mutableMapOf<String, String>()
+                    val headers = mutableMapOf<String, MutableList<String>>()
                     headersJson?.keys()?.forEach { key ->
-                        headers[key] = headersJson.optString(key)
+                        val value = headersJson.get(key)
+                        when (value) {
+                            is org.json.JSONArray -> {
+                                val list = headers.getOrPut(key) { mutableListOf() }
+                                for (i in 0 until value.length()) {
+                                    list.add(value.optString(i))
+                                }
+                            }
+                            null, JSONObject.NULL -> {
+                                headers.getOrPut(key) { mutableListOf() }.add("")
+                            }
+                            else -> {
+                                headers.getOrPut(key) { mutableListOf() }.add(value.toString())
+                            }
+                        }
                     }
+                    val finalizedHeaders = headers.mapValues { it.value.toList() }
                     val status = parsed.optInt("status", 200)
-                    queue.enqueue(ProxyMessage.ResponseHeaders(status, headers))
+                    queue.enqueue(ProxyMessage.ResponseHeaders(status, finalizedHeaders))
                 }
 
                 "chunk" -> {
@@ -100,24 +116,46 @@ class ConnectionRegistry(private val logger: LoggingService) {
             return ByteArray(0)
         }
 
+        if (dataValue is JSONObject && dataValue.optString("type") == "Buffer") {
+            val dataArray = dataValue.optJSONArray("data")
+            if (dataArray != null) {
+                val buffer = ByteArray(dataArray.length())
+                for (i in 0 until dataArray.length()) {
+                    buffer[i] = (dataArray.optInt(i) and 0xFF).toByte()
+                }
+                return buffer
+            }
+        }
+
+        if (dataValue is JSONArray) {
+            val buffer = ByteArray(dataValue.length())
+            for (i in 0 until dataValue.length()) {
+                buffer[i] = (dataValue.optInt(i) and 0xFF).toByte()
+            }
+            return buffer
+        }
+
         val encoding = parsed.optString("encoding")
         val isBase64 = parsed.optBoolean("is_base64", false) ||
             parsed.optBoolean("binary", false) ||
             encoding.equals("base64", ignoreCase = true)
 
         return when {
-            isBase64 -> decodeBase64(dataValue.toString())
+            isBase64 -> decodeBase64(dataValue.toString(), dataValue)
             dataValue is String -> dataValue.toByteArray(Charsets.UTF_8)
             else -> dataValue.toString().toByteArray(Charsets.UTF_8)
         }
     }
 
-    private fun decodeBase64(data: String): ByteArray {
+    private fun decodeBase64(data: String, fallbackValue: Any? = null): ByteArray {
         return try {
             Base64.decode(data, Base64.DEFAULT)
         } catch (_: IllegalArgumentException) {
-            logger.warn("Base64数据解码失败，返回空字节数组")
-            ByteArray(0)
+            logger.warn("Base64数据解码失败，回退到原始数据")
+            when (fallbackValue) {
+                is String -> fallbackValue.toByteArray(Charsets.UTF_8)
+                else -> ByteArray(0)
+            }
         }
     }
 }

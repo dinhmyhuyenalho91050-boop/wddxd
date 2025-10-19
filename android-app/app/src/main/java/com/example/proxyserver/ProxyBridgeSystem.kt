@@ -27,7 +27,7 @@ class ProxyBridgeSystem(
     data class Config(
         val httpPort: Int = 8889,
         val wsPort: Int = 9998,
-        val host: String = "0.0.0.0",
+        val host: String = "127.0.0.1",
         val defaultTimeoutMs: Long = 600_000L
     )
 
@@ -137,22 +137,49 @@ class ProxyBridgeSystem(
 
         private fun buildProxyRequest(session: IHTTPSession, requestId: String): JSONObject {
             val files = mutableMapOf<String, String>()
-            val body = try {
+            val bodyBytes = try {
                 session.parseBody(files)
-                files["postData"] ?: ""
+                val rawBody = files["postData"] ?: ""
+                readBodyBytes(rawBody)
             } catch (ex: Exception) {
                 logger.warn("解析请求体失败: ${ex.message}")
-                ""
+                ByteArray(0)
             }
 
             val headers = JSONObject()
-            session.headers.forEach { (key, value) -> headers.put(key, value) }
+            session.headers.forEach { (key, value) -> headers.put(key.lowercase(), value) }
+
+            val bodyString = normalizeRequestBody(bodyBytes, session.headers["content-type"])
 
             val queryParams = JSONObject()
-            session.parameters.forEach { (key, value) ->
-                val array = JSONArray()
-                value.forEach { array.put(it) }
-                queryParams.put(key, array)
+            session.parameters.forEach { (rawKey, values) ->
+                val key = if (rawKey.endsWith("[]")) rawKey.dropLast(2) else rawKey
+                when {
+                    values.isEmpty() -> queryParams.put(key, "")
+                    values.size == 1 -> {
+                        val existing = queryParams.opt(key)
+                        val value = values.first()
+                        when (existing) {
+                            null, JSONObject.NULL -> queryParams.put(key, value)
+                            is JSONArray -> existing.put(value)
+                            else -> {
+                                val array = JSONArray()
+                                array.put(existing)
+                                array.put(value)
+                                queryParams.put(key, array)
+                            }
+                        }
+                    }
+                    else -> {
+                        val array = when (val existing = queryParams.opt(key)) {
+                            is JSONArray -> existing
+                            null, JSONObject.NULL -> JSONArray()
+                            else -> JSONArray().apply { put(existing) }
+                        }
+                        values.forEach { array.put(it) }
+                        queryParams.put(key, array)
+                    }
+                }
             }
 
             return JSONObject().apply {
@@ -160,9 +187,96 @@ class ProxyBridgeSystem(
                 put("method", session.method.name)
                 put("headers", headers)
                 put("query_params", queryParams)
-                put("body", body)
+                put("body", bodyString)
                 put("request_id", requestId)
             }
+        }
+
+        private fun readBodyBytes(rawBody: String): ByteArray {
+            if (rawBody.isEmpty()) {
+                return ByteArray(0)
+            }
+
+            val file = java.io.File(rawBody)
+            return if (file.exists()) {
+                val bytes = file.readBytes()
+                if (!file.delete()) {
+                    logger.debug("临时请求体文件删除失败: ${file.absolutePath}")
+                }
+                bytes
+            } else {
+                rawBody.toByteArray(Charsets.UTF_8)
+            }
+        }
+
+        private fun normalizeRequestBody(bodyBytes: ByteArray, contentTypeHeader: String?): String {
+            if (bodyBytes.isEmpty()) {
+                return ""
+            }
+
+            val contentType = contentTypeHeader?.lowercase()?.substringBefore(';')?.trim() ?: ""
+
+            return when {
+                contentType.contains("application/json") -> normalizeJsonBody(bodyBytes)
+                contentType.contains("application/x-www-form-urlencoded") -> normalizeFormBody(bodyBytes)
+                contentType.startsWith("text/") || contentType.contains("javascript") ->
+                    bodyBytes.toString(Charsets.UTF_8)
+                else -> bufferString(bodyBytes)
+            }
+        }
+
+        private fun normalizeJsonBody(bodyBytes: ByteArray): String {
+            val bodyText = bodyBytes.toString(Charsets.UTF_8)
+            return try {
+                val trimmed = bodyText.trim()
+                when {
+                    trimmed.startsWith("[") -> JSONArray(trimmed).toString()
+                    trimmed.startsWith("{") -> JSONObject(trimmed).toString()
+                    else -> bodyText
+                }
+            } catch (_: Exception) {
+                bodyText
+            }
+        }
+
+        private fun normalizeFormBody(bodyBytes: ByteArray): String {
+            val bodyText = bodyBytes.toString(Charsets.UTF_8)
+            if (bodyText.isEmpty()) {
+                return ""
+            }
+
+            val formObject = JSONObject()
+            bodyText.split("&").forEach { pair ->
+                if (pair.isEmpty()) return@forEach
+                val parts = pair.split("=", limit = 2)
+                val decodedKey = java.net.URLDecoder.decode(parts[0], "UTF-8")
+                val key = if (decodedKey.endsWith("[]")) decodedKey.dropLast(2) else decodedKey
+                val value = if (parts.size > 1) java.net.URLDecoder.decode(parts[1], "UTF-8") else ""
+                if (formObject.has(key)) {
+                    val existing = formObject.get(key)
+                    when (existing) {
+                        is JSONArray -> existing.put(value)
+                        else -> {
+                            val array = JSONArray()
+                            array.put(existing)
+                            array.put(value)
+                            formObject.put(key, array)
+                        }
+                    }
+                } else {
+                    formObject.put(key, value)
+                }
+            }
+            return formObject.toString()
+        }
+
+        private fun bufferString(bodyBytes: ByteArray): String {
+            val dataArray = JSONArray()
+            bodyBytes.forEach { byte -> dataArray.put(byte.toInt() and 0xFF) }
+            return JSONObject().apply {
+                put("type", "Buffer")
+                put("data", dataArray)
+            }.toString()
         }
 
         private fun forwardRequest(proxyRequest: JSONObject) {
@@ -196,12 +310,16 @@ class ProxyBridgeSystem(
             val outputStream = PipedOutputStream()
             val inputStream: InputStream = PipedInputStream(outputStream)
             val status = lookupStatus(headerMessage.status)
-            val contentType = headerMessage.headers["Content-Type"] ?: NanoHTTPD.MIME_PLAINTEXT
+            val contentTypeValues = headerMessage.headers.entries
+                .firstOrNull { it.key.equals("content-type", ignoreCase = true) }
+                ?.value
+            val contentType = contentTypeValues?.firstOrNull() ?: NanoHTTPD.MIME_PLAINTEXT
             val response = newChunkedResponse(status, contentType, inputStream)
 
-            headerMessage.headers
-                .filterKeys { it.lowercase() != "content-type" }
-                .forEach { (key, value) -> response.addHeader(key, value) }
+            headerMessage.headers.forEach { (key, values) ->
+                if (key.equals("content-type", ignoreCase = true)) return@forEach
+                values.forEach { value -> response.addHeader(key, value) }
+            }
 
             response.applyCors()
 

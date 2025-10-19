@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 sealed class ProxyMessage {
     data class ResponseHeaders(
         val status: Int,
-        val headers: Map<String, String>
+        val headers: Map<String, List<String>>
     ) : ProxyMessage()
 
     data class Chunk(val data: ByteArray) : ProxyMessage()
