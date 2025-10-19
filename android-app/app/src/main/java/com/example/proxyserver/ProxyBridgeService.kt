@@ -193,39 +193,23 @@ class ProxyBridgeService : Service() {
 
     private fun acquireWifiLock() {
         val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
-        val selection = selectWifiLockMode(wifiManager)
-        logMessage("Acquiring WiFi lock with mode: ${selection.modeName}")
-        wifiLock = wifiManager.createWifiLock(selection.mode, "ProxyBridge::WifiLock").apply {
+        val modeName: String
+        val mode: Int
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB_MR1) {
+            modeName = "WIFI_MODE_FULL_HIGH_PERF"
+            mode = WifiManager.WIFI_MODE_FULL_HIGH_PERF
+        } else {
+            @Suppress("DEPRECATION")
+            val fallbackMode = WifiManager.WIFI_MODE_FULL
+            modeName = "WIFI_MODE_FULL"
+            mode = fallbackMode
+        }
+        logMessage("Acquiring WiFi lock with mode: $modeName")
+        wifiLock = wifiManager.createWifiLock(mode, "ProxyBridge::WifiLock").apply {
             setReferenceCounted(false)
             acquire()
         }
     }
-
-    private fun selectWifiLockMode(wifiManager: WifiManager): WifiLockSelection {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB_MR1 &&
-            supportsHighPerformance(wifiManager)
-        ) {
-            return WifiLockSelection(
-                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
-                "WIFI_MODE_FULL_HIGH_PERF"
-            )
-        }
-
-        return WifiLockSelection(
-            WifiManager.WIFI_MODE_FULL,
-            "WIFI_MODE_FULL"
-        )
-    }
-
-    private fun supportsHighPerformance(wifiManager: WifiManager): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            wifiManager.isHighPerformanceSupported
-        } else {
-            true
-        }
-    }
-
-    private data class WifiLockSelection(val mode: Int, val modeName: String)
 
     private fun releaseWifiLock() {
         wifiLock?.let {
