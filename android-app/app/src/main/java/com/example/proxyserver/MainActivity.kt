@@ -11,6 +11,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -77,7 +78,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun startProxyService() {
         val intent = Intent(this, ProxyBridgeService::class.java)
-        ContextCompat.startForegroundService(this, intent)
+        try {
+            ContextCompat.startForegroundService(this, intent)
+        } catch (securityException: SecurityException) {
+            updateStatus(getString(R.string.status_stopped))
+            Toast.makeText(
+                this,
+                getString(R.string.error_start_service, securityException.message ?: ""),
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun stopProxyService() {

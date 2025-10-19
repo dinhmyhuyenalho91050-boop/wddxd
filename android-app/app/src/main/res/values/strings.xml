@@ -8,4 +8,5 @@
     <string name="status_stopped">Proxy is stopped</string>
     <string name="button_start">Start server</string>
     <string name="button_stop">Stop server</string>
+    <string name="error_start_service">Unable to start service: %1$s</string>
 </resources>
