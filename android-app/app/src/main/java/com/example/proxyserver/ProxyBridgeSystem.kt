@@ -214,20 +214,23 @@ class ProxyBridgeSystem(
                 return ""
             }
 
-            val contentType = contentTypeHeader?.lowercase(Locale.ROOT)?.substringBefore(';')?.trim() ?: ""
+            val resolvedContentType = contentTypeHeader?.lowercase(Locale.ROOT)?.substringBefore(';')?.trim() ?: ""
             val charset = resolveCharset(contentTypeHeader)
 
-            return when {
-                isTextualContentType(contentType) -> bodyBytes.toString(charset)
-                else -> {
-                    val textCandidate = runCatching { bodyBytes.toString(charset) }.getOrNull()
-                    if (textCandidate != null && isMostlyPrintable(textCandidate)) {
-                        textCandidate
-                    } else {
-                        bufferString(bodyBytes)
-                    }
+            if (isTextualContentType(resolvedContentType)) {
+                decodeLossless(bodyBytes, charset)?.let { return it }
+                if (charset != StandardCharsets.UTF_8) {
+                    decodeLossless(bodyBytes, StandardCharsets.UTF_8)?.let { return it }
                 }
+                return bufferString(bodyBytes)
             }
+
+            val utf8Fallback = decodeLossless(bodyBytes, StandardCharsets.UTF_8)
+            if (utf8Fallback != null && isMostlyPrintable(utf8Fallback)) {
+                return utf8Fallback
+            }
+
+            return bufferString(bodyBytes)
         }
 
         private fun recoverRequestBody(session: IHTTPSession): ByteArray {
@@ -279,6 +282,7 @@ class ProxyBridgeSystem(
                 .firstOrNull { it.startsWith("charset=", ignoreCase = true) }
                 ?.substringAfter('=')
                 ?.trim()
+                ?.trim('"', '\'', ' ')
                 ?.takeIf { it.isNotEmpty() }
 
             if (charsetToken.isNullOrEmpty()) {
@@ -291,6 +295,16 @@ class ProxyBridgeSystem(
                 StandardCharsets.UTF_8
             } catch (_: IllegalArgumentException) {
                 StandardCharsets.UTF_8
+            }
+        }
+
+        private fun decodeLossless(bodyBytes: ByteArray, charset: Charset): String? {
+            return try {
+                val decoded = String(bodyBytes, charset)
+                val roundTripped = decoded.toByteArray(charset)
+                if (roundTripped.contentEquals(bodyBytes)) decoded else null
+            } catch (_: Exception) {
+                null
             }
         }
 
