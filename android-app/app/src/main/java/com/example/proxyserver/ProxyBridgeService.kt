@@ -5,12 +5,16 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.app.ForegroundServiceStartNotAllowedException
 import android.content.Context
 import android.content.Intent
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -60,7 +64,23 @@ class ProxyBridgeService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         val serviceIntent = Intent(applicationContext, ProxyBridgeService::class.java)
-        ContextCompat.startForegroundService(applicationContext, serviceIntent)
+        try {
+            ContextCompat.startForegroundService(applicationContext, serviceIntent)
+        } catch (ex: ForegroundServiceStartNotAllowedException) {
+            val errorMessage = "Failed to restart foreground service after task removal: ${ex.message}"
+            logMessage(errorMessage)
+            Log.w(TAG, errorMessage, ex)
+            Handler(Looper.getMainLooper()).postDelayed({
+                val retryIntent = Intent(applicationContext, ProxyBridgeService::class.java)
+                try {
+                    ContextCompat.startForegroundService(applicationContext, retryIntent)
+                } catch (retryEx: ForegroundServiceStartNotAllowedException) {
+                    val retryError = "Retry to restart foreground service failed: ${retryEx.message}"
+                    logMessage(retryError)
+                    Log.e(TAG, retryError, retryEx)
+                }
+            }, FOREGROUND_RETRY_DELAY_MS)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -212,5 +232,7 @@ class ProxyBridgeService : Service() {
         private const val CHANNEL_ID = "proxy_bridge_channel"
         private const val NOTIFICATION_ID = 1001
         private const val MAX_LOG_BUFFER = 32_768
+        private const val TAG = "ProxyBridgeService"
+        private const val FOREGROUND_RETRY_DELAY_MS = 3_000L
     }
 }
