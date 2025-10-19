@@ -142,15 +142,7 @@ class ProxyBridgeSystem(
         }
 
         private fun buildProxyRequest(session: IHTTPSession, requestId: String): ProxyRequestBundle {
-            val files = mutableMapOf<String, String>()
-            val bodyBytes = try {
-                session.parseBody(files)
-                val rawBody = files["postData"] ?: ""
-                readBodyBytes(rawBody)
-            } catch (ex: Exception) {
-                logger.warn("解析请求体失败: ${ex.message}")
-                recoverRequestBody(session)
-            }
+            val bodyBytes = readRequestBodyBytes(session)
 
             val headers = JSONObject()
             session.headers.forEach { (key, value) -> headers.put(key.lowercase(), value) }
@@ -197,23 +189,6 @@ class ProxyBridgeSystem(
                 put("request_id", requestId)
             }
             return ProxyRequestBundle(payload, bodyBytes)
-        }
-
-        private fun readBodyBytes(rawBody: String): ByteArray {
-            if (rawBody.isEmpty()) {
-                return ByteArray(0)
-            }
-
-            val file = java.io.File(rawBody)
-            return if (file.exists()) {
-                val bytes = file.readBytes()
-                if (!file.delete()) {
-                    logger.debug("临时请求体文件删除失败: ${file.absolutePath}")
-                }
-                bytes
-            } else {
-                rawBody.toByteArray(Charsets.UTF_8)
-            }
         }
 
         private fun normalizeRequestBody(bodyBytes: ByteArray, contentTypeHeader: String?): String {
@@ -264,7 +239,7 @@ class ProxyBridgeSystem(
             return bufferString(bodyBytes)
         }
 
-        private fun recoverRequestBody(session: IHTTPSession): ByteArray {
+        private fun readRequestBodyBytes(session: IHTTPSession): ByteArray {
             val inputStream = session.inputStream ?: return ByteArray(0)
             val contentLength = session.headers["content-length"]?.toLongOrNull()
             val buffer = java.io.ByteArrayOutputStream()
@@ -288,7 +263,8 @@ class ProxyBridgeSystem(
                     }
                 }
                 buffer.toByteArray()
-            } catch (_: Exception) {
+            } catch (ex: Exception) {
+                logger.warn("读取请求体失败: ${ex.message}")
                 ByteArray(0)
             }
         }
