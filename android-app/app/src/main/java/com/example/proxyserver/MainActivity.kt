@@ -90,6 +90,7 @@ class MainActivity : AppCompatActivity() {
         val lbm = LocalBroadcastManager.getInstance(this)
         lbm.registerReceiver(statusReceiver, IntentFilter(ProxyBridgeService.ACTION_STATUS))
         lbm.registerReceiver(logReceiver, IntentFilter(ProxyBridgeService.ACTION_LOG_UPDATE))
+        lbm.sendBroadcast(Intent(ProxyBridgeService.ACTION_REQUEST_STATUS))
     }
 
     override fun onStop() {
