@@ -1,0 +1,519 @@
+package com.example.proxyserver
+
+import fi.iki.elonen.NanoHTTPD
+import fi.iki.elonen.NanoHTTPD.Method
+import org.java_websocket.handshake.ClientHandshake
+import org.java_websocket.server.WebSocketServer
+import org.java_websocket.WebSocket
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.InputStream
+import java.net.InetSocketAddress
+import kotlin.text.Charsets
+import java.util.Locale
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+
+class ProxyBridgeSystem(
+    private val config: Config = Config(),
+    logListener: ((String) -> Unit)? = null
+) {
+
+    data class Config(
+        val httpPort: Int = 8889,
+        val wsPort: Int = 9998,
+        val host: String = "127.0.0.1",
+        val defaultTimeoutMs: Long = 600_000L
+    )
+
+    private val logger = LoggingService("ProxyServer", logListener)
+    private val connectionRegistry = ConnectionRegistry(logger)
+    @Volatile
+    private var httpServer: ProxyHttpServer? = null
+
+    @Volatile
+    private var webSocketServer: ProxyWebSocketServer? = null
+
+    val isRunning: Boolean
+        get() = httpServer != null && webSocketServer != null
+
+    fun start() {
+        if (isRunning) return
+
+        val httpServerInstance = ProxyHttpServer(config.host, config.httpPort)
+        val webSocketInstance = ProxyWebSocketServer(config.host, config.wsPort)
+
+        try {
+            httpServerInstance.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+            logger.info("HTTP服务器启动: http://${config.host}:${config.httpPort}")
+            webSocketInstance.start()
+            logger.info("WebSocket服务器启动: ws://${config.host}:${config.wsPort}")
+
+            httpServer = httpServerInstance
+            webSocketServer = webSocketInstance
+        } catch (ex: Exception) {
+            logger.error("启动失败: ${ex.message}", ex)
+            httpServerInstance.safeStop()
+            webSocketInstance.safeStop()
+            throw ex
+        }
+    }
+
+    fun stop() {
+        httpServer?.safeStop()
+        webSocketServer?.safeStop()
+        httpServer = null
+        webSocketServer = null
+        connectionRegistry.clearQueues()
+    }
+
+    fun hasActiveConnections(): Boolean = connectionRegistry.hasActiveConnections()
+
+    fun status(): String = if (isRunning) {
+        "HTTP ${config.httpPort}, WS ${config.wsPort}"
+    } else {
+        "stopped"
+    }
+
+    private fun NanoHTTPD.safeStop() {
+        try {
+            stop()
+        } catch (ignored: Exception) {
+            logger.error("停止HTTP服务器失败", ignored)
+        }
+    }
+
+    private fun WebSocketServer.safeStop() {
+        try {
+            stop(2000)
+        } catch (ignored: Exception) {
+            logger.error("停止WebSocket服务器失败", ignored)
+        }
+    }
+
+    private inner class ProxyHttpServer(hostname: String, port: Int) : NanoHTTPD(hostname, port) {
+
+        override fun serve(session: IHTTPSession): Response {
+            logger.info("处理请求: ${session.method} ${session.uri}")
+
+            if (session.method == Method.OPTIONS) {
+                return newFixedLengthResponse(Response.Status.OK, NanoHTTPD.MIME_PLAINTEXT, "")
+                    .applyCors()
+            }
+
+            if (!connectionRegistry.hasActiveConnections()) {
+                return createErrorResponse(Response.Status.SERVICE_UNAVAILABLE, "没有可用的浏览器连接")
+            }
+
+            val requestId = generateRequestId()
+            val messageQueue = connectionRegistry.createMessageQueue(requestId)
+            val queueReleased = AtomicBoolean(false)
+            val releaseQueue = {
+                if (queueReleased.compareAndSet(false, true)) {
+                    connectionRegistry.removeMessageQueue(requestId)
+                }
+            }
+
+            return try {
+                val proxyRequest = buildProxyRequest(session, requestId)
+                forwardRequest(proxyRequest)
+                handleResponse(messageQueue, releaseQueue)
+            } catch (timeout: QueueTimeoutException) {
+                releaseQueue()
+                createErrorResponse(Response.Status.REQUEST_TIMEOUT, "请求超时")
+            } catch (closed: QueueClosedException) {
+                releaseQueue()
+                createErrorResponse(Response.Status.INTERNAL_ERROR, "连接已关闭")
+            } catch (ex: Exception) {
+                releaseQueue()
+                logger.error("请求处理错误: ${ex.message}", ex)
+                createErrorResponse(Response.Status.INTERNAL_ERROR, "代理错误: ${ex.message}")
+            }
+        }
+
+        private fun buildProxyRequest(session: IHTTPSession, requestId: String): JSONObject {
+            val files = mutableMapOf<String, String>()
+            val bodyBytes = try {
+                session.parseBody(files)
+                val rawBody = files["postData"] ?: ""
+                readBodyBytes(rawBody)
+            } catch (ex: Exception) {
+                logger.warn("解析请求体失败: ${ex.message}")
+                ByteArray(0)
+            }
+
+            val headers = JSONObject()
+            session.headers.forEach { (key, value) -> headers.put(key.lowercase(), value) }
+
+            val bodyString = normalizeRequestBody(bodyBytes, session.headers["content-type"])
+
+            val queryParams = JSONObject()
+            session.parameters.forEach { (rawKey, values) ->
+                val key = if (rawKey.endsWith("[]")) rawKey.dropLast(2) else rawKey
+                when {
+                    values.isEmpty() -> queryParams.put(key, "")
+                    values.size == 1 -> {
+                        val existing = queryParams.opt(key)
+                        val value = values.first()
+                        when (existing) {
+                            null, JSONObject.NULL -> queryParams.put(key, value)
+                            is JSONArray -> existing.put(value)
+                            else -> {
+                                val array = JSONArray()
+                                array.put(existing)
+                                array.put(value)
+                                queryParams.put(key, array)
+                            }
+                        }
+                    }
+                    else -> {
+                        val array = when (val existing = queryParams.opt(key)) {
+                            is JSONArray -> existing
+                            null, JSONObject.NULL -> JSONArray()
+                            else -> JSONArray().apply { put(existing) }
+                        }
+                        values.forEach { array.put(it) }
+                        queryParams.put(key, array)
+                    }
+                }
+            }
+
+            return JSONObject().apply {
+                put("path", session.uri)
+                put("method", session.method.name)
+                put("headers", headers)
+                put("query_params", queryParams)
+                put("body", bodyString)
+                put("request_id", requestId)
+            }
+        }
+
+        private fun readBodyBytes(rawBody: String): ByteArray {
+            if (rawBody.isEmpty()) {
+                return ByteArray(0)
+            }
+
+            val file = java.io.File(rawBody)
+            return if (file.exists()) {
+                val bytes = file.readBytes()
+                if (!file.delete()) {
+                    logger.debug("临时请求体文件删除失败: ${file.absolutePath}")
+                }
+                bytes
+            } else {
+                rawBody.toByteArray(Charsets.UTF_8)
+            }
+        }
+
+        private fun normalizeRequestBody(bodyBytes: ByteArray, contentTypeHeader: String?): String {
+            if (bodyBytes.isEmpty()) {
+                return ""
+            }
+
+            val contentType = contentTypeHeader?.lowercase()?.substringBefore(';')?.trim() ?: ""
+
+            return when {
+                contentType.contains("application/json") -> normalizeJsonBody(bodyBytes)
+                contentType.contains("application/x-www-form-urlencoded") -> normalizeFormBody(bodyBytes)
+                contentType.startsWith("text/") || contentType.contains("javascript") ->
+                    bodyBytes.toString(Charsets.UTF_8)
+                else -> bufferString(bodyBytes)
+            }
+        }
+
+        private fun normalizeJsonBody(bodyBytes: ByteArray): String {
+            val bodyText = bodyBytes.toString(Charsets.UTF_8)
+            return try {
+                val trimmed = bodyText.trim()
+                when {
+                    trimmed.startsWith("[") -> JSONArray(trimmed).toString()
+                    trimmed.startsWith("{") -> JSONObject(trimmed).toString()
+                    else -> bodyText
+                }
+            } catch (_: Exception) {
+                bodyText
+            }
+        }
+
+        private fun normalizeFormBody(bodyBytes: ByteArray): String {
+            val bodyText = bodyBytes.toString(Charsets.UTF_8)
+            if (bodyText.isEmpty()) {
+                return ""
+            }
+
+            val formObject = JSONObject()
+            bodyText.split("&").forEach { pair ->
+                if (pair.isEmpty()) return@forEach
+                val parts = pair.split("=", limit = 2)
+                val decodedKey = java.net.URLDecoder.decode(parts[0], "UTF-8")
+                val key = if (decodedKey.endsWith("[]")) decodedKey.dropLast(2) else decodedKey
+                val value = if (parts.size > 1) java.net.URLDecoder.decode(parts[1], "UTF-8") else ""
+                if (formObject.has(key)) {
+                    val existing = formObject.get(key)
+                    when (existing) {
+                        is JSONArray -> existing.put(value)
+                        else -> {
+                            val array = JSONArray()
+                            array.put(existing)
+                            array.put(value)
+                            formObject.put(key, array)
+                        }
+                    }
+                } else {
+                    formObject.put(key, value)
+                }
+            }
+            return formObject.toString()
+        }
+
+        private fun bufferString(bodyBytes: ByteArray): String {
+            val dataArray = JSONArray()
+            bodyBytes.forEach { byte -> dataArray.put(byte.toInt() and 0xFF) }
+            return JSONObject().apply {
+                put("type", "Buffer")
+                put("data", dataArray)
+            }.toString()
+        }
+
+        private fun forwardRequest(proxyRequest: JSONObject) {
+            val connection = connectionRegistry.getFirstConnection()
+                ?: throw IllegalStateException("没有可用的浏览器连接")
+            connection.send(proxyRequest.toString())
+        }
+
+        private fun handleResponse(
+            messageQueue: MessageQueue,
+            releaseQueue: () -> Unit
+        ): Response {
+            when (val headerMessage = messageQueue.dequeue(config.defaultTimeoutMs)) {
+                is ProxyMessage.Error -> {
+                    val statusCode = headerMessage.status ?: 500
+                    val status = lookupStatus(statusCode)
+                    releaseQueue()
+                    return createErrorResponse(status, headerMessage.message)
+                }
+
+                is ProxyMessage.ResponseHeaders -> {
+                    return streamResponse(messageQueue, headerMessage, releaseQueue)
+                }
+
+                else -> {
+                    releaseQueue()
+                    return createErrorResponse(Response.Status.INTERNAL_ERROR, "无效的响应类型")
+                }
+            }
+        }
+
+        private fun streamResponse(
+            messageQueue: MessageQueue,
+            headerMessage: ProxyMessage.ResponseHeaders,
+            releaseQueue: () -> Unit
+        ): Response {
+            val status = lookupStatus(headerMessage.status)
+            val contentTypeValues = headerMessage.headers.entries
+                .firstOrNull { it.key.equals("content-type", ignoreCase = true) }
+                ?.value
+            val contentType = normalizeContentType(contentTypeValues?.firstOrNull())
+            val isEventStream = contentType.contains("text/event-stream", ignoreCase = true)
+
+            val responseStream = QueueBackedInputStream(
+                messageQueue = messageQueue,
+                timeoutMs = config.defaultTimeoutMs,
+                keepAliveEnabled = isEventStream,
+                onStreamComplete = releaseQueue
+            )
+
+            val response = newChunkedResponse(status, contentType, responseStream)
+
+            val accumulatedHeaders = mutableMapOf<String, String>()
+            headerMessage.headers.forEach { (rawKey, values) ->
+                if (rawKey.equals("content-type", ignoreCase = true)) return@forEach
+                if (rawKey.equals("content-length", ignoreCase = true)) return@forEach
+                if (rawKey.equals("transfer-encoding", ignoreCase = true)) return@forEach
+
+                val key = rawKey
+                values.forEach { rawValue ->
+                    val value = sanitizeHeaderValue(rawValue)
+                    val existing = accumulatedHeaders[key]
+                    accumulatedHeaders[key] = when {
+                        existing.isNullOrEmpty() -> value
+                        value.isEmpty() -> existing
+                        else -> "$existing\r\n$key: $value"
+                    }
+                }
+            }
+
+            accumulatedHeaders.forEach { (key, value) ->
+                response.addHeader(key, value)
+            }
+
+            response.applyCors()
+
+            return response
+        }
+
+        private inner class QueueBackedInputStream(
+            private val messageQueue: MessageQueue,
+            private val timeoutMs: Long,
+            private val keepAliveEnabled: Boolean,
+            private val onStreamComplete: () -> Unit
+        ) : InputStream() {
+            private var buffer = ByteArray(0)
+            private var position = 0
+            private var closed = false
+            private val keepAlivePayload = ": keepalive\n\n".toByteArray(Charsets.UTF_8)
+            private var completionNotified = false
+
+            override fun read(): Int {
+                val data = ensureBuffer() ?: return -1
+                return data[position++].toInt() and 0xFF
+            }
+
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                val data = ensureBuffer() ?: return -1
+                val bytesAvailable = data.size - position
+                val bytesToCopy = minOf(len, bytesAvailable)
+                System.arraycopy(data, position, b, off, bytesToCopy)
+                position += bytesToCopy
+                return bytesToCopy
+            }
+
+            private fun ensureBuffer(): ByteArray? {
+                if (closed) {
+                    return null
+                }
+
+                if (position < buffer.size) {
+                    return buffer
+                }
+
+                while (true) {
+                    val message = try {
+                        messageQueue.dequeue(timeoutMs)
+                    } catch (_: QueueClosedException) {
+                        closeStream()
+                        return null
+                    } catch (_: QueueTimeoutException) {
+                        if (keepAliveEnabled) {
+                            buffer = keepAlivePayload
+                            position = 0
+                            return buffer
+                        }
+                        closeStream()
+                        return null
+                    }
+
+                    when (message) {
+                        is ProxyMessage.Chunk -> {
+                            if (message.data.isEmpty()) {
+                                continue
+                            }
+                            buffer = message.data
+                            position = 0
+                            return buffer
+                        }
+
+                        ProxyMessage.StreamEnd -> {
+                            closeStream()
+                            return null
+                        }
+
+                        is ProxyMessage.Error -> {
+                            logger.warn("流式响应收到错误: ${message.message}")
+                            closeStream()
+                            return null
+                        }
+
+                        else -> {
+                            // Ignore unexpected events
+                        }
+                    }
+                }
+            }
+
+            private fun closeStream() {
+                closed = true
+                buffer = ByteArray(0)
+                position = 0
+                if (!completionNotified) {
+                    completionNotified = true
+                    onStreamComplete()
+                }
+            }
+
+            override fun close() {
+                closeStream()
+                super.close()
+            }
+        }
+
+        private fun lookupStatus(code: Int): Response.IStatus {
+            return Response.Status.lookup(code) ?: object : Response.IStatus {
+                override fun getRequestStatus(): Int = code
+                override fun getDescription(): String = "HTTP $code"
+            }
+        }
+
+        private fun normalizeContentType(contentType: String?): String {
+            val resolved = contentType?.takeIf { it.isNotBlank() } ?: NanoHTTPD.MIME_PLAINTEXT
+            val lower = resolved.lowercase(Locale.ROOT)
+            if (lower.contains("charset=")) {
+                return resolved
+            }
+
+            val needsUtf8 = lower.startsWith("text/") ||
+                lower.contains("json") ||
+                lower.contains("javascript") ||
+                lower.contains("xml") ||
+                lower.contains("form-urlencoded")
+
+            return if (needsUtf8) {
+                "$resolved; charset=utf-8"
+            } else {
+                resolved
+            }
+        }
+
+        private fun createErrorResponse(status: Response.IStatus, message: String): Response {
+            return newFixedLengthResponse(status, NanoHTTPD.MIME_PLAINTEXT, message).applyCors()
+        }
+
+        private fun sanitizeHeaderValue(value: String?): String {
+            if (value == null) return ""
+            return value.replace("\r", "").replace("\n", "")
+        }
+
+        private fun generateRequestId(): String = "${System.currentTimeMillis()}_${UUID.randomUUID()}"
+
+        private fun Response.applyCors(): Response {
+            addHeader("Access-Control-Allow-Origin", "*")
+            addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
+            addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin")
+            addHeader("Access-Control-Allow-Credentials", "true")
+            addHeader("Access-Control-Max-Age", "86400")
+            return this
+        }
+    }
+
+    private inner class ProxyWebSocketServer(host: String, port: Int) : WebSocketServer(InetSocketAddress(host, port)) {
+        override fun onOpen(conn: WebSocket, handshake: ClientHandshake) {
+            connectionRegistry.addConnection(conn, conn.remoteSocketAddress?.address?.hostAddress)
+        }
+
+        override fun onClose(conn: WebSocket, code: Int, reason: String, remote: Boolean) {
+            connectionRegistry.removeConnection(conn)
+        }
+
+        override fun onMessage(conn: WebSocket, message: String) {
+            connectionRegistry.handleIncomingMessage(message)
+        }
+
+        override fun onError(conn: WebSocket?, ex: Exception) {
+            logger.error("WebSocket连接错误: ${ex.message}", ex)
+        }
+
+        override fun onStart() {
+            logger.info("WebSocket服务器监听: ${config.host}:${config.wsPort}")
+        }
+    }
+}
