@@ -7,7 +7,6 @@ import org.java_websocket.server.WebSocketServer
 import org.java_websocket.WebSocket
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
 import java.io.InputStream
 import java.net.InetSocketAddress
 import kotlin.text.Charsets
@@ -241,54 +240,14 @@ class ProxyBridgeSystem(
         }
 
         private fun captureRequestBody(session: IHTTPSession): ByteArray {
-            val files = mutableMapOf<String, String>()
-            val bodyBytes = try {
-                session.parseBody(files)
-                readPostData(files["postData"])
-            } catch (ex: Exception) {
-                logger.warn("解析请求体失败: ${ex.message}")
-                recoverBodyFromStream(session)
-            }
-
-            val contentLength = session.headers["content-length"]?.toLongOrNull()
-            if (contentLength != null && bodyBytes.isNotEmpty() && bodyBytes.size.toLong() != contentLength) {
-                logger.warn("请求体长度与Content-Length不匹配: 预期=${contentLength}, 实际=${bodyBytes.size}")
-            }
-
-            return bodyBytes
-        }
-
-        private fun readPostData(rawBody: String?): ByteArray {
-            if (rawBody.isNullOrEmpty()) {
-                return ByteArray(0)
-            }
-
-            val file = File(rawBody)
-            if (file.exists()) {
-                return try {
-                    file.readBytes().also {
-                        if (!file.delete()) {
-                            logger.debug("临时请求体文件删除失败: ${file.absolutePath}")
-                        }
-                    }
-                } catch (ex: Exception) {
-                    logger.warn("读取临时请求体文件失败: ${ex.message}")
-                    ByteArray(0)
-                }
-            }
-
-            return rawBody.toByteArray(Charsets.UTF_8)
-        }
-
-        private fun recoverBodyFromStream(session: IHTTPSession): ByteArray {
             val inputStream = session.inputStream ?: return ByteArray(0)
-            val contentLength = session.headers["content-length"]?.toLongOrNull()
             val buffer = java.io.ByteArrayOutputStream()
             val tempBuffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            val declaredLength = session.headers["content-length"]?.toLongOrNull()
 
-            return try {
-                if (contentLength != null) {
-                    var remaining = contentLength
+            try {
+                if (declaredLength != null) {
+                    var remaining = declaredLength
                     while (remaining > 0) {
                         val bytesToRead = minOf(tempBuffer.size.toLong(), remaining).toInt()
                         val read = inputStream.read(tempBuffer, 0, bytesToRead)
@@ -303,11 +262,17 @@ class ProxyBridgeSystem(
                         buffer.write(tempBuffer, 0, read)
                     }
                 }
-                buffer.toByteArray()
             } catch (ex: Exception) {
-                logger.warn("流式读取请求体失败: ${ex.message}")
-                ByteArray(0)
+                logger.warn("读取请求体失败: ${ex.message}")
             }
+
+            val bodyBytes = buffer.toByteArray()
+
+            if (declaredLength != null && bodyBytes.isNotEmpty() && bodyBytes.size.toLong() != declaredLength) {
+                logger.warn("请求体长度与Content-Length不匹配: 预期=${declaredLength}, 实际=${bodyBytes.size}")
+            }
+
+            return bodyBytes
         }
 
         private fun bufferString(bodyBytes: ByteArray): String {
