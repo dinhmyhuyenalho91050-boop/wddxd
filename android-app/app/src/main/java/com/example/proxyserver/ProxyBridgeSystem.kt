@@ -10,6 +10,9 @@ import org.json.JSONObject
 import java.io.InputStream
 import java.net.InetSocketAddress
 import kotlin.text.Charsets
+import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
+import java.nio.charset.UnsupportedCharsetException
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -133,15 +136,7 @@ class ProxyBridgeSystem(
         }
 
         private fun buildProxyRequest(session: IHTTPSession, requestId: String): JSONObject {
-            val files = mutableMapOf<String, String>()
-            val bodyBytes = try {
-                session.parseBody(files)
-                val rawBody = files["postData"] ?: ""
-                readBodyBytes(rawBody)
-            } catch (ex: Exception) {
-                logger.warn("解析请求体失败: ${ex.message}")
-                recoverRequestBody(session)
-            }
+            val bodyBytes = captureRequestBody(session)
 
             val headers = JSONObject()
             session.headers.forEach { (key, value) -> headers.put(key.lowercase(), value) }
@@ -189,48 +184,63 @@ class ProxyBridgeSystem(
             }
         }
 
-        private fun readBodyBytes(rawBody: String): ByteArray {
-            if (rawBody.isEmpty()) {
-                return ByteArray(0)
-            }
-
-            val file = java.io.File(rawBody)
-            return if (file.exists()) {
-                val bytes = file.readBytes()
-                if (!file.delete()) {
-                    logger.debug("临时请求体文件删除失败: ${file.absolutePath}")
-                }
-                bytes
-            } else {
-                rawBody.toByteArray(Charsets.UTF_8)
-            }
-        }
-
         private fun normalizeRequestBody(bodyBytes: ByteArray, contentTypeHeader: String?): String {
             if (bodyBytes.isEmpty()) {
                 return ""
             }
 
-            val contentType = contentTypeHeader?.lowercase()?.substringBefore(';')?.trim() ?: ""
+            val resolvedContentType = contentTypeHeader
+                ?.lowercase(Locale.ROOT)
+                ?.substringBefore(';')
+                ?.trim()
+                ?: ""
+            val charset = resolveCharset(contentTypeHeader)
 
-            return when {
-                contentType.contains("application/json") -> normalizeJsonBody(bodyBytes)
-                contentType.contains("application/x-www-form-urlencoded") -> normalizeFormBody(bodyBytes)
-                contentType.startsWith("text/") || contentType.contains("javascript") ->
-                    bodyBytes.toString(Charsets.UTF_8)
-                else -> bufferString(bodyBytes)
+            if (isJsonContentType(resolvedContentType)) {
+                decodeText(bodyBytes, charset)?.let { return it }
+                if (charset != StandardCharsets.UTF_8) {
+                    decodeText(bodyBytes, StandardCharsets.UTF_8)?.let { return it }
+                }
+                return bufferString(bodyBytes)
             }
+
+            if (isFormUrlEncoded(resolvedContentType)) {
+                decodeText(bodyBytes, charset)?.let { decoded ->
+                    stringifyUrlEncodedBody(decoded, charset)?.let { return it }
+                    return decoded
+                }
+                if (charset != StandardCharsets.UTF_8) {
+                    decodeText(bodyBytes, StandardCharsets.UTF_8)?.let { decoded ->
+                        stringifyUrlEncodedBody(decoded, StandardCharsets.UTF_8)?.let { return it }
+                        return decoded
+                    }
+                }
+                return bufferString(bodyBytes)
+            }
+
+            if (resolvedContentType.startsWith("text/") ||
+                resolvedContentType.contains("javascript") ||
+                resolvedContentType.contains("xml")
+            ) {
+                decodeText(bodyBytes, charset)?.let { return it }
+                if (charset != StandardCharsets.UTF_8) {
+                    decodeText(bodyBytes, StandardCharsets.UTF_8)?.let { return it }
+                }
+                return bufferString(bodyBytes)
+            }
+
+            return bufferString(bodyBytes)
         }
 
-        private fun recoverRequestBody(session: IHTTPSession): ByteArray {
+        private fun captureRequestBody(session: IHTTPSession): ByteArray {
             val inputStream = session.inputStream ?: return ByteArray(0)
-            val contentLength = session.headers["content-length"]?.toLongOrNull()
             val buffer = java.io.ByteArrayOutputStream()
             val tempBuffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            val declaredLength = session.headers["content-length"]?.toLongOrNull()
 
-            return try {
-                if (contentLength != null) {
-                    var remaining = contentLength
+            try {
+                if (declaredLength != null) {
+                    var remaining = declaredLength
                     while (remaining > 0) {
                         val bytesToRead = minOf(tempBuffer.size.toLong(), remaining).toInt()
                         val read = inputStream.read(tempBuffer, 0, bytesToRead)
@@ -245,55 +255,17 @@ class ProxyBridgeSystem(
                         buffer.write(tempBuffer, 0, read)
                     }
                 }
-                buffer.toByteArray()
-            } catch (_: Exception) {
-                ByteArray(0)
-            }
-        }
-
-        private fun normalizeJsonBody(bodyBytes: ByteArray): String {
-            val bodyText = bodyBytes.toString(Charsets.UTF_8)
-            return try {
-                val trimmed = bodyText.trim()
-                when {
-                    trimmed.startsWith("[") -> JSONArray(trimmed).toString()
-                    trimmed.startsWith("{") -> JSONObject(trimmed).toString()
-                    else -> bodyText
-                }
-            } catch (_: Exception) {
-                bodyText
-            }
-        }
-
-        private fun normalizeFormBody(bodyBytes: ByteArray): String {
-            val bodyText = bodyBytes.toString(Charsets.UTF_8)
-            if (bodyText.isEmpty()) {
-                return ""
+            } catch (ex: Exception) {
+                logger.warn("读取请求体失败: ${ex.message}")
             }
 
-            val formObject = JSONObject()
-            bodyText.split("&").forEach { pair ->
-                if (pair.isEmpty()) return@forEach
-                val parts = pair.split("=", limit = 2)
-                val decodedKey = java.net.URLDecoder.decode(parts[0], "UTF-8")
-                val key = if (decodedKey.endsWith("[]")) decodedKey.dropLast(2) else decodedKey
-                val value = if (parts.size > 1) java.net.URLDecoder.decode(parts[1], "UTF-8") else ""
-                if (formObject.has(key)) {
-                    val existing = formObject.get(key)
-                    when (existing) {
-                        is JSONArray -> existing.put(value)
-                        else -> {
-                            val array = JSONArray()
-                            array.put(existing)
-                            array.put(value)
-                            formObject.put(key, array)
-                        }
-                    }
-                } else {
-                    formObject.put(key, value)
-                }
+            val bodyBytes = buffer.toByteArray()
+
+            if (declaredLength != null && bodyBytes.isNotEmpty() && bodyBytes.size.toLong() != declaredLength) {
+                logger.warn("请求体长度与Content-Length不匹配: 预期=${declaredLength}, 实际=${bodyBytes.size}")
             }
-            return formObject.toString()
+
+            return bodyBytes
         }
 
         private fun bufferString(bodyBytes: ByteArray): String {
@@ -303,6 +275,117 @@ class ProxyBridgeSystem(
                 put("type", "Buffer")
                 put("data", dataArray)
             }.toString()
+        }
+
+        private fun resolveCharset(contentTypeHeader: String?): Charset {
+            if (contentTypeHeader.isNullOrBlank()) {
+                return StandardCharsets.UTF_8
+            }
+
+            val charsetToken = contentTypeHeader.split(';')
+                .drop(1)
+                .map { it.trim() }
+                .firstOrNull { it.startsWith("charset=", ignoreCase = true) }
+                ?.substringAfter('=')
+                ?.trim()
+                ?.trim('"', '\'', ' ')
+                ?.takeIf { it.isNotEmpty() }
+
+            if (charsetToken.isNullOrEmpty()) {
+                return StandardCharsets.UTF_8
+            }
+
+            return try {
+                Charset.forName(charsetToken)
+            } catch (_: UnsupportedCharsetException) {
+                StandardCharsets.UTF_8
+            } catch (_: IllegalArgumentException) {
+                StandardCharsets.UTF_8
+            }
+        }
+
+        private fun decodeText(bodyBytes: ByteArray, charset: Charset): String? {
+            return try {
+                val decoded = String(bodyBytes, charset)
+                val roundTripped = decoded.toByteArray(charset)
+                if (roundTripped.contentEquals(bodyBytes)) {
+                    decoded
+                } else {
+                    null
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        private fun isJsonContentType(contentType: String): Boolean {
+            if (contentType.isEmpty()) {
+                return false
+            }
+
+            return contentType == "application/json" ||
+                contentType.endsWith("+json") ||
+                contentType == "text/json"
+        }
+
+        private fun isFormUrlEncoded(contentType: String): Boolean {
+            return contentType == "application/x-www-form-urlencoded"
+        }
+
+        private fun stringifyUrlEncodedBody(body: String, charset: Charset): String? {
+            val pairs = body.split('&').filter { it.isNotEmpty() }
+            if (pairs.isEmpty()) {
+                return "{}"
+            }
+
+            val result = JSONObject()
+
+            for (pair in pairs) {
+                val idx = pair.indexOf('=')
+                val rawKey = if (idx >= 0) pair.substring(0, idx) else pair
+                val rawValue = if (idx >= 0) pair.substring(idx + 1) else ""
+
+                val key = try {
+                    java.net.URLDecoder.decode(rawKey, charset.name())
+                } catch (_: Exception) {
+                    return null
+                }
+
+                val value = try {
+                    java.net.URLDecoder.decode(rawValue, charset.name())
+                } catch (_: Exception) {
+                    return null
+                }
+
+                addFormField(result, key, value)
+            }
+
+            return result.toString()
+        }
+
+        private fun addFormField(container: JSONObject, key: String, value: String) {
+            if (key.endsWith("[]")) {
+                val normalizedKey = key.dropLast(2)
+                val existing = container.opt(normalizedKey)
+                val array = when (existing) {
+                    is JSONArray -> existing
+                    JSONObject.NULL, null -> JSONArray()
+                    else -> JSONArray().apply { put(existing) }
+                }
+                array.put(value)
+                container.put(normalizedKey, array)
+                return
+            }
+
+            val existing = container.opt(key)
+            when (existing) {
+                null, JSONObject.NULL -> container.put(key, value)
+                is JSONArray -> existing.put(value)
+                else -> container.put(key, JSONArray().apply {
+                    put(existing)
+                    put(value)
+                })
+            }
         }
 
         private fun forwardRequest(proxyRequest: JSONObject) {

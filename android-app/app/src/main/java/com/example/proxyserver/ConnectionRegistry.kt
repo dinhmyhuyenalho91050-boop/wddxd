@@ -8,7 +8,9 @@ import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.text.Charsets
 
-class ConnectionRegistry(private val logger: LoggingService) {
+class ConnectionRegistry(
+    private val logger: LoggingService,
+) {
 
     private val connections = Collections.synchronizedSet(mutableSetOf<WebSocket>())
     private val messageQueues = ConcurrentHashMap<String, MessageQueue>()
@@ -81,21 +83,26 @@ class ConnectionRegistry(private val logger: LoggingService) {
                     }
                     val finalizedHeaders = headers.mapValues { it.value.toList() }
                     val status = parsed.optInt("status", 200)
-                    queue.enqueue(ProxyMessage.ResponseHeaders(status, finalizedHeaders))
+                    val message = ProxyMessage.ResponseHeaders(status, finalizedHeaders)
+                    queue.enqueue(message)
                 }
 
                 "chunk" -> {
                     val chunkBytes = decodeChunkPayload(parsed)
-                    queue.enqueue(ProxyMessage.Chunk(chunkBytes))
+                    val message = ProxyMessage.Chunk(chunkBytes)
+                    queue.enqueue(message)
                 }
 
                 "error" -> {
                     val status = if (parsed.has("status")) parsed.optInt("status") else null
                     val message = parsed.optString("message", "Unknown error")
-                    queue.enqueue(ProxyMessage.Error(status, message))
+                    val proxyMessage = ProxyMessage.Error(status, message)
+                    queue.enqueue(proxyMessage)
                 }
 
-                "stream_close" -> queue.enqueue(ProxyMessage.StreamEnd)
+                "stream_close" -> {
+                    queue.enqueue(ProxyMessage.StreamEnd)
+                }
 
                 else -> logger.warn("未知的事件类型: ${parsed.optString("event_type")}")
             }
