@@ -16,4 +16,4 @@ This Android application replicates the behavior of the original `dark_server_co
 gradle -p android-app assembleDebug
 ```
 
-The repository does not include the Gradle wrapper binaries. Install Gradle 8.7 (or newer) locally, or rely on the provided GitHub Actions workflow which sets up the toolchain automatically.
+The repository does not include the Gradle wrapper binaries. Install Gradle 8.7 (or newer) locally, or rely on the provided GitHub Actions workflow which sets up the toolchain automatically. When the workflow runs on GitHub, it now publishes the generated `app-debug.apk` as an artifact named **`proxy-bridge-debug-apk`** so you can download the build output directly from the Actions run summary.

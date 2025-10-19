@@ -20,10 +20,20 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Set up Gradle
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          components: tools platform-tools build-tools;34.0.0 platforms;android-34
+
+      - name: Build debug APK
         uses: gradle/gradle-build-action@v2
         with:
           gradle-version: 8.7
+          build-root-directory: android-app
+          arguments: assembleDebug
 
-      - name: Build debug APK
-        run: gradle -p android-app assembleDebug
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-bridge-debug-apk
+          path: android-app/app/build/outputs/apk/debug/app-debug.apk
