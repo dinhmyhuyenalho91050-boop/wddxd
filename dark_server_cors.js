@@ -3,6 +3,8 @@ const WebSocket = require('ws');
 const http = require('http');
 const { EventEmitter } = require('events');
 
+const QUEUE_CLOSED = Symbol('QUEUE_CLOSED');
+
 // 日志记录器模块
 class LoggingService {
   constructor(serviceName = 'ProxyServer') {
@@ -43,7 +45,7 @@ class MessageQueue extends EventEmitter {
   
   enqueue(message) {
     if (this.closed) return;
-    
+
     if (this.waitingResolvers.length > 0) {
       const resolver = this.waitingResolvers.shift();
       resolver.resolve(message);
@@ -51,41 +53,85 @@ class MessageQueue extends EventEmitter {
       this.messages.push(message);
     }
   }
-  
+
+  _pollMessage() {
+    if (this.messages.length === 0) {
+      return null;
+    }
+
+    const next = this.messages.shift();
+    if (next === QUEUE_CLOSED) {
+      throw new Error('Queue closed');
+    }
+
+    return next;
+  }
+
   async dequeue(timeoutMs = this.defaultTimeout) {
+    const immediate = this._pollMessage();
+    if (immediate !== null) {
+      return immediate;
+    }
+
     if (this.closed) {
       throw new Error('Queue is closed');
     }
-    
+
     return new Promise((resolve, reject) => {
       if (this.messages.length > 0) {
-        resolve(this.messages.shift());
+        try {
+          resolve(this._pollMessage());
+        } catch (error) {
+          reject(error);
+        }
         return;
       }
-      
-      const resolver = { resolve, reject };
+
+      let timeoutId;
+      const resolver = {
+        resolve: (value) => {
+          clearTimeout(timeoutId);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        }
+      };
+
       this.waitingResolvers.push(resolver);
-      
-      const timeoutId = setTimeout(() => {
+
+      timeoutId = setTimeout(() => {
         const index = this.waitingResolvers.indexOf(resolver);
         if (index !== -1) {
           this.waitingResolvers.splice(index, 1);
           reject(new Error('Queue timeout'));
         }
       }, timeoutMs);
-      
+
       resolver.timeoutId = timeoutId;
     });
   }
-  
+
   close() {
+    if (this.closed) {
+      return;
+    }
     this.closed = true;
     this.waitingResolvers.forEach(resolver => {
       clearTimeout(resolver.timeoutId);
       resolver.reject(new Error('Queue closed'));
     });
     this.waitingResolvers = [];
-    this.messages = [];
+    this.messages.push(QUEUE_CLOSED);
+  }
+
+  closeWithError(status, message) {
+    if (this.closed) {
+      return;
+    }
+    this.enqueue({ event_type: 'error', status, message });
+    this.close();
   }
 }
 
@@ -120,11 +166,10 @@ class ConnectionRegistry extends EventEmitter {
   _removeConnection(websocket) {
     this.connections.delete(websocket);
     this.logger.info('客户端连接断开');
-    
+
     // 关闭所有相关的消息队列
-    this.messageQueues.forEach(queue => queue.close());
-    this.messageQueues.clear();
-    
+    this.clearQueues(502, '浏览器连接断开');
+
     this.emit('connectionRemoved', websocket);
   }
   
@@ -149,22 +194,26 @@ class ConnectionRegistry extends EventEmitter {
     }
   }
   
-  _routeMessage(message, queue) {
-    const { event_type } = message;
-    
-    switch (event_type) {
-      case 'response_headers':
-      case 'chunk':
-      case 'error':
-        queue.enqueue(message);
-        break;
-      case 'stream_close':
-        queue.enqueue({ type: 'STREAM_END' });
-        break;
-      default:
-        this.logger.warn(`未知的事件类型: ${event_type}`);
+    _routeMessage(message, queue) {
+      const { event_type } = message;
+
+      switch (event_type) {
+        case 'response_headers':
+          queue.enqueue(message);
+          break;
+        case 'chunk':
+          queue.enqueue(this._normalizeChunkMessage(message));
+          break;
+        case 'error':
+          queue.enqueue(message);
+          break;
+        case 'stream_close':
+          queue.enqueue({ type: 'STREAM_END' });
+          break;
+        default:
+          this.logger.warn(`未知的事件类型: ${event_type}`);
+      }
     }
-  }
   
   hasActiveConnections() {
     return this.connections.size > 0;
@@ -186,6 +235,11 @@ class ConnectionRegistry extends EventEmitter {
       queue.close();
       this.messageQueues.delete(requestId);
     }
+  }
+
+  clearQueues(status = 502, message = '连接已关闭') {
+    this.messageQueues.forEach(queue => queue.closeWithError(status, message));
+    this.messageQueues.clear();
   }
 }
 
@@ -260,10 +314,14 @@ class RequestHandler {
   
   _setResponseHeaders(res, headerMessage) {
     res.status(headerMessage.status || 200);
-    
+
     const headers = headerMessage.headers || {};
     Object.entries(headers).forEach(([name, value]) => {
-      res.set(name, value);
+      if (typeof name === 'string' && name.toLowerCase() === 'content-type') {
+        res.set(name, this._normalizeContentTypeHeader(value));
+      } else {
+        res.set(name, value);
+      }
     });
   }
   
@@ -271,11 +329,16 @@ class RequestHandler {
     while (true) {
       try {
         const dataMessage = await messageQueue.dequeue();
-        
+
         if (dataMessage.type === 'STREAM_END') {
           break;
         }
-        
+
+        if (dataMessage.event_type === 'error') {
+          this.logger.warn(`流式响应收到错误: ${dataMessage.message}`);
+          break;
+        }
+
         if (dataMessage.data) {
           res.write(dataMessage.data);
         }
@@ -287,6 +350,8 @@ class RequestHandler {
           } else {
             break;
           }
+        } else if (error.message === 'Queue closed' || error.message === 'Queue is closed') {
+          break;
         } else {
           throw error;
         }
@@ -299,12 +364,112 @@ class RequestHandler {
   _handleRequestError(error, res) {
     if (error.message === 'Queue timeout') {
       this._sendErrorResponse(res, 504, '请求超时');
+    } else if (error.message === 'Queue closed' || error.message === 'Queue is closed') {
+      this._sendErrorResponse(res, 503, '浏览器连接已断开');
     } else {
       this.logger.error(`请求处理错误: ${error.message}`);
       this._sendErrorResponse(res, 500, `代理错误: ${error.message}`);
     }
   }
-  
+
+  _normalizeChunkMessage(message) {
+    const normalized = { ...message };
+
+    const toBufferFromArray = (array) => {
+      const length = array.length >>> 0;
+      const buffer = Buffer.allocUnsafe(length);
+      for (let i = 0; i < length; i += 1) {
+        buffer[i] = array[i] & 0xff;
+      }
+      return buffer;
+    };
+
+    const base64Data = message.data_base64;
+    if (base64Data) {
+      try {
+        normalized.data = Buffer.from(base64Data, 'base64');
+      } catch (error) {
+        this.logger.warn('Base64数据解码失败，回退到原始数据');
+        normalized.data = Buffer.from('', 'utf8');
+      }
+      return normalized;
+    }
+
+    const dataValue = message.data;
+    if (dataValue === undefined || dataValue === null) {
+      normalized.data = Buffer.alloc(0);
+      return normalized;
+    }
+
+    if (Buffer.isBuffer(dataValue)) {
+      normalized.data = dataValue;
+      return normalized;
+    }
+
+    if (Array.isArray(dataValue)) {
+      normalized.data = toBufferFromArray(dataValue);
+      return normalized;
+    }
+
+    if (typeof dataValue === 'object') {
+      const maybeBuffer = dataValue && dataValue.type === 'Buffer' && Array.isArray(dataValue.data)
+        ? dataValue.data
+        : null;
+      if (maybeBuffer) {
+        normalized.data = toBufferFromArray(maybeBuffer);
+        return normalized;
+      }
+    }
+
+    const encoding = message.encoding || '';
+    const isBase64 = Boolean(message.is_base64 || message.binary || encoding.toLowerCase() === 'base64');
+
+    if (isBase64) {
+      try {
+        normalized.data = Buffer.from(String(dataValue), 'base64');
+      } catch (error) {
+        this.logger.warn('Base64数据解码失败，使用原始数据字符串');
+        normalized.data = Buffer.from(String(dataValue), 'utf8');
+      }
+      return normalized;
+    }
+
+    normalized.data = Buffer.from(String(dataValue), 'utf8');
+    return normalized;
+  }
+
+  _normalizeContentTypeHeader(value) {
+    if (Array.isArray(value)) {
+      return value.map((entry) => this._ensureUtf8Charset(typeof entry === 'string' ? entry : String(entry)));
+    }
+
+    if (value === undefined || value === null) {
+      return value;
+    }
+
+    return this._ensureUtf8Charset(typeof value === 'string' ? value : String(value));
+  }
+
+  _ensureUtf8Charset(contentType) {
+    const trimmed = contentType.trim();
+    if (!trimmed) {
+      return trimmed;
+    }
+
+    const lower = trimmed.toLowerCase();
+    if (lower.includes('charset=')) {
+      return trimmed;
+    }
+
+    const needsUtf8 = lower.startsWith('text/') ||
+      lower.includes('json') ||
+      lower.includes('javascript') ||
+      lower.includes('xml') ||
+      lower.includes('form-urlencoded');
+
+    return needsUtf8 ? `${trimmed}; charset=utf-8` : trimmed;
+  }
+
   _sendErrorResponse(res, status, message) {
     res.status(status).send(message);
   }
