@@ -214,20 +214,39 @@ class ProxyBridgeSystem(
                 return ""
             }
 
-            val resolvedContentType = contentTypeHeader?.lowercase(Locale.ROOT)?.substringBefore(';')?.trim() ?: ""
+            val resolvedContentType = contentTypeHeader
+                ?.lowercase(Locale.ROOT)
+                ?.substringBefore(';')
+                ?.trim()
+                ?: ""
             val charset = resolveCharset(contentTypeHeader)
 
-            if (isTextualContentType(resolvedContentType)) {
-                decodeLossless(bodyBytes, charset)?.let { return it }
+            if (isJsonContentType(resolvedContentType)) {
+                decodeLossless(bodyBytes, charset)?.let { decoded ->
+                    canonicalizeJson(decoded)?.let { return it }
+                    return decoded
+                }
                 if (charset != StandardCharsets.UTF_8) {
-                    decodeLossless(bodyBytes, StandardCharsets.UTF_8)?.let { return it }
+                    decodeLossless(bodyBytes, StandardCharsets.UTF_8)?.let { decoded ->
+                        canonicalizeJson(decoded)?.let { return it }
+                        return decoded
+                    }
                 }
                 return bufferString(bodyBytes)
             }
 
-            val utf8Fallback = decodeLossless(bodyBytes, StandardCharsets.UTF_8)
-            if (utf8Fallback != null && isMostlyPrintable(utf8Fallback)) {
-                return utf8Fallback
+            if (isFormUrlEncoded(resolvedContentType)) {
+                decodeLossless(bodyBytes, charset)?.let { decoded ->
+                    stringifyUrlEncodedBody(decoded, charset)?.let { return it }
+                    return decoded
+                }
+                if (charset != StandardCharsets.UTF_8) {
+                    decodeLossless(bodyBytes, StandardCharsets.UTF_8)?.let { decoded ->
+                        stringifyUrlEncodedBody(decoded, StandardCharsets.UTF_8)?.let { return it }
+                        return decoded
+                    }
+                }
+                return bufferString(bodyBytes)
             }
 
             return bufferString(bodyBytes)
@@ -308,28 +327,91 @@ class ProxyBridgeSystem(
             }
         }
 
-        private fun isTextualContentType(contentType: String): Boolean {
+        private fun isJsonContentType(contentType: String): Boolean {
             if (contentType.isEmpty()) {
                 return false
             }
 
-            return contentType.startsWith("text/") ||
-                contentType.contains("json") ||
-                contentType.contains("xml") ||
-                contentType.contains("javascript") ||
-                contentType.contains("form-urlencoded") ||
-                contentType.contains("plain")
+            return contentType == "application/json" ||
+                contentType.endsWith("+json") ||
+                contentType == "text/json"
         }
 
-        private fun isMostlyPrintable(text: String): Boolean {
-            if (text.isEmpty()) {
-                return true
+        private fun isFormUrlEncoded(contentType: String): Boolean {
+            return contentType == "application/x-www-form-urlencoded"
+        }
+
+        private fun canonicalizeJson(text: String): String? {
+            val trimmed = text.trim()
+            if (trimmed.isEmpty()) {
+                return ""
             }
 
-            val printable = text.count { ch ->
-                ch >= ' ' || ch == '\n' || ch == '\r' || ch == '\t'
+            return try {
+                when {
+                    trimmed.startsWith("{") -> JSONObject(trimmed).toString()
+                    trimmed.startsWith("[") -> JSONArray(trimmed).toString()
+                    else -> null
+                }
+            } catch (_: Exception) {
+                null
             }
-            return printable * 1.0 / text.length >= 0.9
+        }
+
+        private fun stringifyUrlEncodedBody(body: String, charset: Charset): String? {
+            val pairs = body.split('&').filter { it.isNotEmpty() }
+            if (pairs.isEmpty()) {
+                return "{}"
+            }
+
+            val result = JSONObject()
+
+            for (pair in pairs) {
+                val idx = pair.indexOf('=')
+                val rawKey = if (idx >= 0) pair.substring(0, idx) else pair
+                val rawValue = if (idx >= 0) pair.substring(idx + 1) else ""
+
+                val key = try {
+                    java.net.URLDecoder.decode(rawKey, charset.name())
+                } catch (_: Exception) {
+                    return null
+                }
+
+                val value = try {
+                    java.net.URLDecoder.decode(rawValue, charset.name())
+                } catch (_: Exception) {
+                    return null
+                }
+
+                addFormField(result, key, value)
+            }
+
+            return result.toString()
+        }
+
+        private fun addFormField(container: JSONObject, key: String, value: String) {
+            if (key.endsWith("[]")) {
+                val normalizedKey = key.dropLast(2)
+                val existing = container.opt(normalizedKey)
+                val array = when (existing) {
+                    is JSONArray -> existing
+                    JSONObject.NULL, null -> JSONArray()
+                    else -> JSONArray().apply { put(existing) }
+                }
+                array.put(value)
+                container.put(normalizedKey, array)
+                return
+            }
+
+            val existing = container.opt(key)
+            when (existing) {
+                null, JSONObject.NULL -> container.put(key, value)
+                is JSONArray -> existing.put(value)
+                else -> container.put(key, JSONArray().apply {
+                    put(existing)
+                    put(value)
+                })
+            }
         }
 
         private fun forwardRequest(proxyRequest: JSONObject) {
