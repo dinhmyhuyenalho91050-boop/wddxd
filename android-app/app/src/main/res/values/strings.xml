@@ -9,4 +9,6 @@
     <string name="button_start">Start server</string>
     <string name="button_stop">Stop server</string>
     <string name="error_start_service">Unable to start service: %1$s</string>
+    <string name="error_start_foreground_service_not_allowed">Unable to promote to foreground service. Please keep the app visible and try again.</string>
+    <string name="error_notification_permission_denied">Notification permission is required to keep the proxy running in the foreground.</string>
 </resources>
