@@ -32,6 +32,7 @@ class ProxyBridgeService : Service() {
     private val notificationManager by lazy { ContextCompat.getSystemService(this, NotificationManager::class.java) }
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private val lowLatencyEvidenceStore by lazy { LowLatencyEvidenceStore(applicationContext) }
     private lateinit var bridgeSystem: ProxyBridgeSystem
     private val isStarting = AtomicBoolean(false)
 
@@ -193,22 +194,57 @@ class ProxyBridgeService : Service() {
 
     private fun acquireWifiLock() {
         val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
-        val wifiMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            WifiManager.WIFI_MODE_FULL_LOW_LATENCY
-        } else {
-            WifiManager.WIFI_MODE_FULL
-        }
-        val modeName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            "WIFI_MODE_FULL_LOW_LATENCY"
-        } else {
-            "WIFI_MODE_FULL"
-        }
-        logMessage("Acquiring WiFi lock with mode: $modeName")
-        wifiLock = wifiManager.createWifiLock(wifiMode, "ProxyBridge::WifiLock").apply {
+        val selection = selectWifiLockMode(wifiManager)
+        logMessage("Acquiring WiFi lock with mode: ${selection.modeName} (${selection.rationale})")
+        wifiLock = wifiManager.createWifiLock(selection.mode, "ProxyBridge::WifiLock").apply {
             setReferenceCounted(false)
             acquire()
         }
     }
+
+    private fun selectWifiLockMode(wifiManager: WifiManager): WifiLockSelection {
+        val hasLowLatencyEvidence = lowLatencyEvidenceStore.hasRecentEvidence()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && hasLowLatencyEvidence && supportsLowLatency(wifiManager)) {
+            return WifiLockSelection(
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY,
+                "WIFI_MODE_FULL_LOW_LATENCY",
+                "low-latency evidence detected"
+            )
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB_MR1 && supportsHighPerformance(wifiManager)) {
+            return WifiLockSelection(
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                "WIFI_MODE_FULL_HIGH_PERF",
+                "prefer high performance mode"
+            )
+        }
+
+        return WifiLockSelection(
+            WifiManager.WIFI_MODE_FULL,
+            "WIFI_MODE_FULL",
+            "fallback to legacy full lock"
+        )
+    }
+
+    private fun supportsLowLatency(wifiManager: WifiManager): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            wifiManager.isLowLatencySupported
+        } else {
+            true
+        }
+    }
+
+    private fun supportsHighPerformance(wifiManager: WifiManager): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            wifiManager.isHighPerformanceSupported
+        } else {
+            true
+        }
+    }
+
+    private data class WifiLockSelection(val mode: Int, val modeName: String, val rationale: String)
 
     private fun releaseWifiLock() {
         wifiLock?.let {
