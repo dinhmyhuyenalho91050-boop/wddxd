@@ -27,14 +27,15 @@ class ProxyBridgeService : Service() {
     private val notificationManager by lazy { ContextCompat.getSystemService(this, NotificationManager::class.java) }
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
-
-    private val bridgeSystem = ProxyBridgeSystem(logListener = { logMessage(it) })
+    private var trafficMonitor: ProxyTrafficMonitor = ProxyTrafficMonitor.noOp()
+    private lateinit var bridgeSystem: ProxyBridgeSystem
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         acquireWakeLock()
         acquireWifiLock()
+        initializeBridge()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -66,9 +67,13 @@ class ProxyBridgeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun startBridge() {
+        if (!::bridgeSystem.isInitialized) {
+            initializeBridge()
+        }
+        val system = bridgeSystem
         serviceScope.launch {
             try {
-                bridgeSystem.start()
+                system.start()
                 broadcastStatus(true, formatStatusMessage())
             } catch (ex: Exception) {
                 logMessage("Failed to start bridge: ${ex.message}")
@@ -79,6 +84,7 @@ class ProxyBridgeService : Service() {
     }
 
     private fun stopBridge() {
+        if (!::bridgeSystem.isInitialized) return
         try {
             bridgeSystem.stop()
         } catch (ex: Exception) {
@@ -175,8 +181,19 @@ class ProxyBridgeService : Service() {
     }
 
     private fun formatStatusMessage(): String {
-        val ports = bridgeSystem.status()
+        val ports = if (::bridgeSystem.isInitialized) bridgeSystem.status() else "initializing"
         return getString(R.string.notification_content_running) + " ($ports)"
+    }
+
+    private fun initializeBridge() {
+        if (::bridgeSystem.isInitialized) return
+        val outputDir = (getExternalFilesDir(null) ?: filesDir).let { java.io.File(it, "traffic-monitor") }
+        trafficMonitor = JsonLinesTrafficMonitor(outputDir)
+        logMessage("Traffic monitor writing to: ${outputDir.absolutePath}")
+        bridgeSystem = ProxyBridgeSystem(
+            logListener = { logMessage(it) },
+            trafficMonitor = trafficMonitor
+        )
     }
 
     companion object {

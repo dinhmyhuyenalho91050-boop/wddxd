@@ -8,7 +8,10 @@ import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.text.Charsets
 
-class ConnectionRegistry(private val logger: LoggingService) {
+class ConnectionRegistry(
+    private val logger: LoggingService,
+    private val trafficMonitor: ProxyTrafficMonitor = ProxyTrafficMonitor.noOp()
+) {
 
     private val connections = Collections.synchronizedSet(mutableSetOf<WebSocket>())
     private val messageQueues = ConcurrentHashMap<String, MessageQueue>()
@@ -47,6 +50,7 @@ class ConnectionRegistry(private val logger: LoggingService) {
         try {
             val parsed = JSONObject(messageData)
             val requestId = parsed.optString("request_id")
+            trafficMonitor.onIncomingWebSocketMessage(requestId.takeIf { it.isNotEmpty() }, messageData, parsed)
             if (requestId.isEmpty()) {
                 logger.warn("收到无效消息：缺少request_id")
                 return
@@ -81,21 +85,30 @@ class ConnectionRegistry(private val logger: LoggingService) {
                     }
                     val finalizedHeaders = headers.mapValues { it.value.toList() }
                     val status = parsed.optInt("status", 200)
-                    queue.enqueue(ProxyMessage.ResponseHeaders(status, finalizedHeaders))
+                    val message = ProxyMessage.ResponseHeaders(status, finalizedHeaders)
+                    trafficMonitor.onProxyMessageQueued(requestId, message)
+                    queue.enqueue(message)
                 }
 
                 "chunk" -> {
                     val chunkBytes = decodeChunkPayload(parsed)
-                    queue.enqueue(ProxyMessage.Chunk(chunkBytes))
+                    val message = ProxyMessage.Chunk(chunkBytes)
+                    trafficMonitor.onProxyMessageQueued(requestId, message)
+                    queue.enqueue(message)
                 }
 
                 "error" -> {
                     val status = if (parsed.has("status")) parsed.optInt("status") else null
                     val message = parsed.optString("message", "Unknown error")
-                    queue.enqueue(ProxyMessage.Error(status, message))
+                    val proxyMessage = ProxyMessage.Error(status, message)
+                    trafficMonitor.onProxyMessageQueued(requestId, proxyMessage)
+                    queue.enqueue(proxyMessage)
                 }
 
-                "stream_close" -> queue.enqueue(ProxyMessage.StreamEnd)
+                "stream_close" -> {
+                    trafficMonitor.onProxyMessageQueued(requestId, ProxyMessage.StreamEnd)
+                    queue.enqueue(ProxyMessage.StreamEnd)
+                }
 
                 else -> logger.warn("未知的事件类型: ${parsed.optString("event_type")}")
             }
