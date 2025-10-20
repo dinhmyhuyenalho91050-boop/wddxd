@@ -7,7 +7,7 @@ This Android application replicates the behavior of the original `dark_server_co
 - Embedded HTTP server with CORS headers that mirrors the Node.js implementation
 - Embedded WebSocket server for relaying requests to a connected browser automation client
 - Streaming response support with keep-alive packets for `text/event-stream`
-- Foreground service with partial wake lock and battery optimization prompt to keep the bridge reliable
+- Foreground service with partial wake lock and Wi-Fi lock management to keep the bridge reliable
 - Local log broadcasting for visibility inside the UI
 
 ## Building

@@ -7,11 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
-import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -32,7 +29,6 @@ class MainActivity : AppCompatActivity() {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) {
-                ensureBatteryOptimizationExemption()
                 startProxyServiceInternal()
             } else {
                 Toast.makeText(
@@ -78,7 +74,6 @@ class MainActivity : AppCompatActivity() {
                 stopProxyService()
             } else {
                 if (ensureNotificationPermission()) {
-                    ensureBatteryOptimizationExemption()
                     startProxyServiceInternal()
                 }
             }
@@ -172,23 +167,4 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun ensureBatteryOptimizationExemption() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
-            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-                try {
-                    startActivity(intent)
-                } catch (activityNotFound: Exception) {
-                    Toast.makeText(
-                        this,
-                        getString(R.string.error_start_service, activityNotFound.message ?: ""),
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
-        }
-    }
 }

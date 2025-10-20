@@ -38,8 +38,6 @@ class ProxyBridgeService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        acquireWakeLock()
-        acquireWifiLock()
         initializeBridge()
     }
 
@@ -96,6 +94,9 @@ class ProxyBridgeService : Service() {
             return
         }
 
+        acquireWakeLock()
+        acquireWifiLock()
+
         val system = bridgeSystem
         serviceScope.launch {
             try {
@@ -117,6 +118,9 @@ class ProxyBridgeService : Service() {
             bridgeSystem.stop()
         } catch (ex: Exception) {
             logMessage("Failed to stop bridge: ${ex.message}")
+        } finally {
+            releaseWakeLock()
+            releaseWifiLock()
         }
     }
 
@@ -175,6 +179,10 @@ class ProxyBridgeService : Service() {
     }
 
     private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) {
+            return
+        }
+        releaseWakeLock()
         val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ProxyBridge::WakeLock").apply {
             setReferenceCounted(false)
@@ -192,6 +200,10 @@ class ProxyBridgeService : Service() {
     }
 
     private fun acquireWifiLock() {
+        if (wifiLock?.isHeld == true) {
+            return
+        }
+        releaseWifiLock()
         val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
         val modeName = "WIFI_MODE_FULL"
         val mode = WifiManager.WIFI_MODE_FULL
