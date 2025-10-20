@@ -193,17 +193,8 @@ class ProxyBridgeService : Service() {
 
     private fun acquireWifiLock() {
         val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
-        val modeName: String
-        val mode: Int
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB_MR1) {
-            modeName = "WIFI_MODE_FULL_HIGH_PERF"
-            mode = WifiManager.WIFI_MODE_FULL_HIGH_PERF
-        } else {
-            @Suppress("DEPRECATION")
-            val fallbackMode = WifiManager.WIFI_MODE_FULL
-            modeName = "WIFI_MODE_FULL"
-            mode = fallbackMode
-        }
+        val modeName = "WIFI_MODE_FULL"
+        val mode = WifiManager.WIFI_MODE_FULL
         logMessage("Acquiring WiFi lock with mode: $modeName")
         wifiLock = wifiManager.createWifiLock(mode, "ProxyBridge::WifiLock").apply {
             setReferenceCounted(false)
